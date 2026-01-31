@@ -1,0 +1,25 @@
+# Agentic workflow – conference talk abstract generator
+# Python 3.10+
+
+# App & env
+streamlit>=1.28.0
+python-dotenv>=1.0.0
+
+# HTTP & parsing
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+crawl4ai>=0.3.0
+
+# Couchbase
+couchbase>=4.2.0
+
+# OpenAI-compatible client (Nebius, OpenAI, etc.)
+openai>=1.6.0
+
+# Google ADK (research agent)
+google-adk>=0.1.0
+
+# Optional: search APIs for research agent
+# exa-py>=1.0.0
+# tavily-python>=0.3.0
+# linkup-python  # if available on PyPI
