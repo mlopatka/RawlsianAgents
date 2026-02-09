@@ -31,6 +31,34 @@ A multi-stage agentic pipeline for generating conference talk proposals, combini
 - OpenAI-compatible API (e.g. Nebius AI) for embeddings and chat **or** a local open-source LLM (see below)
 - Optional: Exa / Tavily / Linkup API keys for the research agent
 
+## Dependency management (uv)
+
+This project uses [pyproject.toml](pyproject.toml) and [uv.lock](uv.lock) for dependency management.
+
+Install dependencies:
+
+```bash
+uv sync
+```
+
+Add a dependency:
+
+```bash
+uv add <package>
+```
+
+Add a dev dependency:
+
+```bash
+uv add --dev <package>
+```
+
+Update the lockfile after manual edits to [pyproject.toml](pyproject.toml):
+
+```bash
+uv lock
+```
+
 ### Optional: local open-source LLM (Hugging Face / Ollama)
 
 You can run the pipeline with a **local** OpenAI-compatible server (e.g. [Ollama](https://ollama.com), vLLM, Hugging Face Inference) instead of a cloud API.
@@ -52,8 +80,13 @@ Configure in `.env`:
 
 **Example (Ollama):**
 
+First, install Ollama:
 ```bash
-# Install Ollama, then e.g.:
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Then pull the models:
+```bash
 ollama pull llama3.2
 ollama pull nomic-embed-text
 
@@ -116,12 +149,18 @@ streamlit run talk_suggestions_app.py -- --local-llm
 
 ## Environment
 
-Copy `.env.example` to `.env` and set:
+Copy [.env.template](.env.template) to `.env` and fill in your values:
 
+```bash
+cp .env.template .env
+```
+
+Required:
 - `CB_*` – Couchbase connection, bucket, collection, search index
-- `NEBIUS_API_KEY`, `NEBIUS_API_BASE` (or your OpenAI-compatible endpoint)
-- Optional: `USE_LOCAL_LLM=1` and `LOCAL_LLM_*` for a local open-source LLM (Ollama / Hugging Face)
-- Optional: `EXA_API_KEY`, `TAVILY_API_KEY`, `LINKUP_API_KEY` for the research agent
+- `OPENAI_API_KEY` for OpenAI-compatible endpoint
+
+Optional:
+- `USE_LOCAL_LLM=1` and `LOCAL_LLM_*` for a local open-source LLM (Ollama / vLLM / Hugging Face Inference)
 
 ## File layout
 
