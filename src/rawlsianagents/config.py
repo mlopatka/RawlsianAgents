@@ -28,7 +28,7 @@ def local_llm_model() -> str:
     """Model name for local chat (e.g. llama3.2, mistral, Qwen2-7B-Instruct)."""
     return os.getenv(
         "LOCAL_LLM_MODEL",
-        "llama3.2",  # Ollama default; use any HF model you serve locally
+        "glm-4.7-flash",  # Ollama default; use any HF model you serve locally
     )
 
 
