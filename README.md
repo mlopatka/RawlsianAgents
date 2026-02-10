@@ -145,6 +145,10 @@ Outputs:
 
 ### Interactive UI (Optional)
 
+Launch the Streamlit app to upload a contract and receive a fairness report.
+The app runs the full pipeline end-to-end and returns the Dispute Score,
+per-claim dispute breakdown, and BERT similarity summary.
+
 ```bash
 streamlit run app.py
 ```
