@@ -1,5 +1,5 @@
 """
-Shared LLM config: cloud (Nebius/OpenAI) vs local open-source (Ollama, vLLM, Hugging Face).
+Shared LLM config: cloud (OpenAI) vs local open-source (Ollama).
 Set USE_LOCAL_LLM=1 or run Streamlit with --local-llm to use a local model.
 """
 import os
@@ -17,7 +17,7 @@ def use_local_llm() -> bool:
 
 
 def local_llm_base_url() -> str:
-    """Base URL for local OpenAI-compatible API (e.g. Ollama, vLLM)."""
+    """Base URL for local OpenAI-compatible API (e.g. Ollama)."""
     return os.getenv(
         "LOCAL_LLM_BASE_URL",
         "http://localhost:11434/v1",  # Ollama default
@@ -28,7 +28,7 @@ def local_llm_model() -> str:
     """Model name for local chat (e.g. llama3.2, mistral, Qwen2-7B-Instruct)."""
     return os.getenv(
         "LOCAL_LLM_MODEL",
-        "llama3.2",  # Ollama default; use any HF model you serve locally
+        "glm-4.7-flash",  # Ollama default; use any HF model you serve locally
     )
 
 
@@ -58,11 +58,11 @@ def openai_base_url() -> str:
     """Base URL for OpenAI-compatible client."""
     if use_local_llm():
         return local_llm_base_url()
-    return os.getenv("NEBIUS_API_BASE", "https://api.openai.com/v1")
+    return os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 
 def openai_api_key() -> str:
     """API key (empty for many local servers like Ollama)."""
     if use_local_llm():
         return os.getenv("LOCAL_LLM_API_KEY", "") or "ollama"  # Ollama ignores key
-    return os.getenv("NEBIUS_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+    return os.getenv("OPENAI_API_KEY", "")
