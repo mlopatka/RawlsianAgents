@@ -5,7 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "langchain>=1.2.10",
     "ollama>=0.6.1",
+    "openai>=2.20.0",
     "psycopg>=3.3.2",
+    "ragas>=0.4.3",
     "streamlit>=1.54.0",
 ]
