@@ -1,6 +1,12 @@
 import asyncio
-from rawlsianagents.claims_extractor import claims_extractor
+
 from langchain_text_splitters import MarkdownHeaderTextSplitter
+from tqdm.asyncio import tqdm
+
+from rawlsianagents.claims_extractor import claims_extractor
+from rawlsianagents.config import get_logger
+
+logger = get_logger(__name__)
 
 headers_to_split_on = [
     ("#", "H1"),
@@ -21,7 +27,7 @@ async def main():
         claims_extractor.decompose_claims(section.page_content, callbacks=None)
         for section in sections
     ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await tqdm.gather(*tasks, desc="Processing sections")
     
     # Flatten list of lists into single list, filtering out exceptions
     all_claims = [
@@ -31,9 +37,9 @@ async def main():
         for claim in result #type: ignore
     ]
     
-    print(f"Total claims extracted: {len(all_claims)}\n")
+    logger.info(f"Total claims extracted: {len(all_claims)}")
     for i, claim in enumerate(all_claims, 1):
-        print(f"{i}. {claim}")
+        logger.info(f"{i}. {claim}")
 
 
 if __name__ == "__main__":

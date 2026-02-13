@@ -2,11 +2,27 @@
 Shared LLM config: cloud (OpenAI) vs local open-source (Ollama).
 Set USE_LOCAL_LLM=1 or run Streamlit with --local-llm to use a local model.
 """
+import logging
 import os
 import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Get a configured logger instance."""
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger
 
 
 def should_use_local_llm() -> bool:
@@ -42,9 +58,7 @@ def get_local_embedding_model() -> str:
 
 def get_chat_model() -> str:
     """Get chat model to use (cloud or local depending on should_use_local_llm())."""
-    if should_use_local_llm():
-        return get_local_llm_model()
-    return os.getenv("CHAT_MODEL", "Qwen/Qwen3-235B-A22B")
+    return os.getenv("CHAT_MODEL", "gpt-4o-mini")
 
 
 def get_embedding_model() -> str:
@@ -56,8 +70,6 @@ def get_embedding_model() -> str:
 
 def get_openai_base_url() -> str:
     """Get base URL for OpenAI-compatible client."""
-    if should_use_local_llm():
-        return get_local_llm_base_url()
     return os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 
