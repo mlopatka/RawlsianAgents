@@ -3,7 +3,7 @@ import asyncio
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from tqdm.asyncio import tqdm
 
-from rawlsianagents.claims_extractor import claims_extractor
+from rawlsianagents.claims_extractor import decompose_claims
 from rawlsianagents.config import get_logger
 
 logger = get_logger(__name__)
@@ -22,24 +22,25 @@ async def main():
     text_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
     sections = text_splitter.split_text(agreement)
 
-    # Process all sections concurrently and flatten results
+    # Process all sections concurrently: extract and classify claims
     tasks = [
-        claims_extractor.decompose_claims(section.page_content, callbacks=None)
+        decompose_claims(section.page_content, callbacks=None).classify_claims()
         for section in sections
     ]
-    results = await tqdm.gather(*tasks, desc="Processing sections")
+    classified_results = await tqdm.gather(*tasks, desc="Extracting and classifying claims")
     
-    # Flatten list of lists into single list, filtering out exceptions
-    all_claims = [
-        claim 
-        for result in results 
-        if not isinstance(result, Exception)
-        for claim in result #type: ignore
+    # Flatten results
+    all_classified_claims = [
+        claim_pair
+        for classified_claims in classified_results
+        for claim_pair in classified_claims
     ]
     
-    logger.info(f"Total claims extracted: {len(all_claims)}")
-    for i, claim in enumerate(all_claims, 1):
-        logger.info(f"{i}. {claim}")
+    logger.info(f"Total claims extracted and classified: {len(all_classified_claims)}")
+    
+    # Display claims with classifications
+    for i, (claim, classification) in enumerate(all_classified_claims, 1):
+        logger.info(f"{i}. [{classification.upper()}] {claim}")
 
 
 if __name__ == "__main__":
