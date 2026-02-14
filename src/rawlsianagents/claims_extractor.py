@@ -1,10 +1,10 @@
+import asyncio
 from typing import Literal
 
 import dspy
 from openai import OpenAI
 from ragas.llms import llm_factory
 from ragas.metrics._factual_correctness import FactualCorrectness
-from tqdm.asyncio import tqdm
 
 from .config import (get_api_key, get_base_url, get_dspy_model, get_logger,
                      get_model, should_use_local_llm)
@@ -42,6 +42,11 @@ claims_classifier_llm = dspy.LM(
 )
 dspy.configure(lm=claims_classifier_llm)
 
+class FactualOrNegotiable(dspy.Signature):
+    """Classify a contract claim as factual or negotiable."""
+    claim: str = dspy.InputField()
+    classification: Literal["factual", "negotiable"] = dspy.OutputField()
+
 class Claims:
     """Wrapper for claims that enables chained operations like classify_claims()."""
 
@@ -60,9 +65,7 @@ class Claims:
             List of tuples containing (claim, classification)
         """
         classification_tasks = [self._classify_claim(claim) for claim in self.claims]
-        classifications = await tqdm.gather(
-            *classification_tasks, desc="Classifying claims"
-        )
+        classifications = await asyncio.gather(*classification_tasks)
 
         return list(zip(self.claims, classifications))
 
@@ -78,8 +81,8 @@ class Claims:
             "factual" if the claim is a standard or descriptive clause in a contract,
             "negotiable" if the claim affects any of the parties involved
         """
-        classify_task = dspy.ChainOfThought("claim -> classification")
-        
+
+        classify_task = dspy.Predict(FactualOrNegotiable)
         response = classify_task(claim=claim)
 
         classification = response.classification
@@ -107,3 +110,20 @@ async def decompose_claims(text: str, callbacks=None) -> Claims:
     """
     extracted = await claims_extractor.decompose_claims(text, callbacks=callbacks)
     return Claims(extracted)
+
+
+async def decompose_and_classify_claims(
+    text: str, callbacks=None
+) -> list[tuple[str, Literal["factual", "negotiable"]]]:
+    """
+    Extract and classify claims from text in a single operation.
+
+    Args:
+        text: The text to extract and classify claims from
+        callbacks: Optional callbacks for the underlying extractor
+
+    Returns:
+        List of tuples containing (claim, classification)
+    """
+    claims = await decompose_claims(text, callbacks=callbacks)
+    return await claims.classify_claims()

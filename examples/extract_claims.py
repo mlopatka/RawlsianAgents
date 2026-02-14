@@ -3,7 +3,7 @@ import asyncio
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from tqdm.asyncio import tqdm
 
-from rawlsianagents.claims_extractor import decompose_claims
+from rawlsianagents.claims_extractor import decompose_and_classify_claims
 from rawlsianagents.config import get_logger
 
 logger = get_logger(__name__)
@@ -15,18 +15,15 @@ headers_to_split_on = [
     ("####", "H4"),
 ]
 
+
 async def main():
     with open("data/LeVan vs LeVan/initial_agreement.md", "r") as f:
         agreement = f.read()
     
     text_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
     sections = text_splitter.split_text(agreement)
-
-    # Process all sections concurrently: extract and classify claims
-    tasks = [
-        decompose_claims(section.page_content, callbacks=None).classify_claims()
-        for section in sections
-    ]
+    
+    tasks = [decompose_and_classify_claims(section.page_content) for section in sections]
     classified_results = await tqdm.gather(*tasks, desc="Extracting and classifying claims")
     
     # Flatten results
