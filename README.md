@@ -1,6 +1,6 @@
 # Rawlsian Agents: LLM-Based Contract Negotiation & Fairness Assessment
 
-An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Application of Large Language Models (LLM) to Forge Fairer Bilateral Agreements](https://link.springer.com/chapter/10.1007/978-3-032-15632-7_1). This system uses LLMs to analyze, negotiate, and redraft contracts through multi-agent simulated negotiation, measuring initial contract fairness via negotiation metrics.
+An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Application of Large Language Models (LLM) to Forge Fairer Bilateral Agreements](https://link.springer.com/chapter/10.1007/978-3-032-15632-7_1) and [its original codebase](https://github.com/aegerita/Rawlsian-Agents). This system uses LLMs to analyze, discuss, and redraft contracts through multi-agent simulated debate, measuring initial contract fairness via negotiation metrics.
 
 ## Architecture Overview
 
@@ -63,6 +63,14 @@ Update the lockfile after manual edits to [pyproject.toml](pyproject.toml):
 
 ```bash
 uv lock
+```
+
+### Installing the Package
+
+After running `uv sync`, install the package in development mode to make `rawlsianagents` importable:
+
+```bash
+uv pip install -e .
 ```
 
 ### Optional: Local Open-Source LLM (Ollama / vLLM)
