@@ -21,20 +21,18 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
 
 ### Pipeline Stages
 
-1. **Claim Extraction & Classification** – Parse initial contract and classify claims as *factual* (immutable) or *negotiable* (subject to discussion).
-2. **Negotiation Simulation** – For each negotiable claim:
-   - Agents simulate parties to the contract
-   - Propose amendments or new claims
-   - Track negotiation rounds per claim
-3. **Contract Drafting** – Synthesize factual claims + revised negotiable claims into a final contract.
-4. **Fairness Assessment** – Compute metrics:
-   - **Dispute Score**: Total rounds normalized by # of negotiable claims (proxy for initial injustice/ambiguity)
-   - **Per-Claim Dispute Score**: Rounds per claim (highlights most contentious clauses)
-   - **BERT Score**: Semantic similarity between original and final contracts (magnitude of required changes)
+1. **Claim Extraction & Classification** – Parse contract text and classify claims as *factual* or *negotiable*.
+2. **Negotiation Swarm** – Run multi-role negotiation over a claim until all roles are satisfied or `max_rounds` is reached:
+  - Role nodes revise the latest claim and append adjustment notes
+  - Impartial spectator appends neutral perspective suggestions
+  - Round reset node restarts role turn-tracking between rounds
+3. **Negotiation Output** – Return the final claim plus traceable negotiation artifacts:
+  - `final_claim`, `adjustment_notes`, `satisfied_roles`
+  - `rounds`, `agreement_count`, `success (all roles satisfied)`
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.14+
 - OpenAI-compatible API (e.g. OpenAI, Nebius AI) for chat **or** a local open-source LLM (see below)
 
 ## Dependency Management (uv)
@@ -73,15 +71,45 @@ After running `uv sync`, install the package in development mode to make `rawlsi
 uv pip install -e .
 ```
 
+## View Documentation Locally
+
+Build the Sphinx docs:
+
+```bash
+uv run make -C docs html
+```
+
+- The `html` target depends on `apidoc` (`html: apidoc`), so it runs first.
+- `apidoc` calls `sphinx-apidoc` to regenerate API `.rst` stubs in `docs/api` from `src/rawlsianagents`.
+- This keeps API pages aligned with the current Python modules before HTML generation.
+
+Then either open the generated file directly:
+
+- `docs/_build/html/index.html`
+
+Or serve the docs folder locally with Python:
+
+```bash
+cd docs/_build/html
+python -m http.server 8000
+```
+
+If you want to regenerate API stubs manually only:
+
+```bash
+uv run sphinx-apidoc --force --no-toc --separate -o docs/api src/rawlsianagents
+```
+
+Open:
+
+- `http://localhost:8000`
+
 ### Optional: Local Open-Source LLM (Ollama / vLLM)
 
-Run the pipeline with a **local** OpenAI-compatible server (e.g. [Ollama](https://ollama.com), vLLM, Hugging Face Inference) instead of a cloud API.
+Run the negotiation examples with a **local** OpenAI-compatible server (e.g. [Ollama](https://ollama.com), vLLM, Hugging Face Inference) instead of a cloud API.
 
-- **Env flag:** set `USE_LOCAL_LLM=1` (or `true` / `yes`) in `.env`.
-- **CLI flag:** run scripts with `--local-llm`:
-  ```bash
-  python negotiate_claims.py --local-llm ...
-  ```
+- Set `USE_LOCAL_LLM=1` (or `true` / `yes`) in `.env`.
+- Then run the examples normally (for example, `python examples/negotiate_claim.py`).
 
 Configure in `.env`:
 
@@ -115,57 +143,84 @@ LOCAL_EMBEDDING_MODEL=nomic-embed-text
 
 ## Usage
 
-### Step 1: Extract and Classify Claims
+### Quick Start: Negotiation Swarm
 
-```bash
-python extract_claims.py --input contract.txt --output claims.json
+The `NegotiationSwarm` module provides a simple way to negotiate claims among multiple parties:
+
+```python
+from rawlsianagents import NegotiationSwarm
+
+# Define roles and initial claim
+roles = ["LeVan family", "bride", "groom", "potential children"]
+initial_claim = (
+  "The marriage contract excludes all of the husband's business interests "
+  "from net family property and limits the wife's right to support."
+)
+
+# Create and run negotiation
+swarm = NegotiationSwarm(
+    roles=roles,
+    initial_claim=initial_claim,
+  max_rounds=20,
+)
+
+result = swarm.negotiate()
+print(f"Final claim: {result['final_claim']}")
+print(f"Completed in {result['rounds']} rounds")
+print(f"Success: {result['success']}")
+print(f"Satisfied roles: {result['satisfied_roles']}")
 ```
 
-Parses the input contract and outputs a JSON with claims tagged as `factual` or `negotiable`.
+See [examples/negotiate_claim.py](examples/negotiate_claim.py) for more examples. For generated API docs, build Sphinx docs and open `docs/_build/html/index.html`.
 
-### Step 2: Run Negotiation Simulation
+### Current NegotiationSwarm Behavior
 
-```bash
-python negotiate_claims.py --input claims.json --output negotiated_claims.json
-```
+- Constructor: `NegotiationSwarm(roles, initial_claim, max_rounds=20)`
+- Role nodes evaluate and potentially revise `latest_claim` using DSPy `RoleEvaluation`
+- Satisfaction is tracked in `satisfied_roles` and role participation in `roles_spoken_this_round`
+- After each full round-robin, spectator appends neutral suggestions to `adjustment_notes`
+- A dedicated `reset_round` node resets round bookkeeping before the next round
+- Negotiation ends when all roles are satisfied or `max_rounds` is reached
 
-Simulates multi-agent negotiation for each negotiable claim. Tracks amendment rounds and outputs revised claims.
+Return payload includes:
 
-### Step 3: Draft Final Contract
+- `original_claim`
+- `final_claim`
+- `adjustment_notes`
+- `rounds`
+- `agreement_count`
+- `success`
+- `satisfied_roles`
 
-```bash
-python draft_contract.py --factual claims.json --negotiated negotiated_claims.json --output final_contract.txt
-```
+### Pipeline Usage
 
-Combines factual claims with negotiated revisions to produce the final contract.
-
-### Step 4: Compute Fairness Metrics
-
-```bash
-python compute_metrics.py --original contract.txt --final final_contract.txt --negotiation negotiated_claims.json
-```
-
-Outputs:
-- Total negotiation rounds
-- Per-claim dispute scores
-- Normalized dispute score
-- BERT similarity score
-
-### Interactive UI (Optional)
-
-Launch the Streamlit app to upload a contract and receive a fairness report.
-The app runs the full pipeline end-to-end and returns the Dispute Score,
-per-claim dispute breakdown, and BERT similarity summary.
+### Run Claim Extraction Example
 
 ```bash
-streamlit run app.py
+python examples/extract_claims.py
 ```
 
-With a local LLM:
+Runs the extraction/classification workflow over the included sample inputs.
+
+### Run Negotiation Swarm Example
 
 ```bash
-streamlit run app.py -- --local-llm
+python examples/negotiate_claim.py
 ```
+
+Runs the current `NegotiationSwarm` flow and prints the final claim plus satisfaction map.
+
+### Output from NegotiationSwarm
+
+`negotiate()` and `negotiate_async()` return:
+
+- `original_claim`
+- `final_claim`
+- `adjustment_notes`
+- `rounds`
+- `agreement_count`
+- `success`
+- `satisfied_roles`
 
 ## Environment
 
@@ -188,15 +243,22 @@ RawlsianAgents/
 ├── README.md
 ├── pyproject.toml         # Dependencies (uv)
 ├── .env.template          # Environment template
+├── data/                  # Sample agreements and inputs
 ├── src/
 │   └── rawlsianagents/
 │       ├── config.py              # LLM config (cloud vs local)
-│       ├── extract_claims.py      # Claim extraction & classification
-│       ├── negotiate_claims.py    # Multi-agent negotiation simulation
-│       ├── draft_contract.py      # Final contract synthesis
-│       └── compute_metrics.py     # Fairness/injustice metrics
-├── app.py                 # Streamlit UI (optional)
-└── tests/                 # Unit tests
+│       ├── claims_extractor.py    # Claim extraction & classification
+│       ├── negotiation_swarm.py   # Multi-agent negotiation swarm
+│       └── __init__.py            # Public package exports
+├── examples/
+│   ├── extract_claims.py          # Example: Extract claims
+│   └── negotiate_claim.py         # Example: Negotiation swarm
+├── docs/
+│   ├── index.rst                  # Sphinx entrypoint
+│   ├── modules.rst                # API module index
+│   ├── api/                       # API rst pages
+│   └── ...
+└── uv.lock                # Locked dependency graph
 ```
 
 ## Key Concepts
@@ -211,10 +273,6 @@ RawlsianAgents/
 
 - **BERT Score** = `semantic_similarity(original_contract, final_contract)`  
   Measures magnitude of required changes (lower = more revisions needed).
-
-### Why Rawlsian?
-
-Based on John Rawls' principles of justice, the system simulates negotiation behind a "veil of ignorance" where agents optimize for fairness rather than self-interest, converging toward more equitable contract terms.
 
 ## References
 
