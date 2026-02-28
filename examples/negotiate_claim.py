@@ -13,13 +13,13 @@ def main() -> None:
     swarm = NegotiationSwarm(
         roles=roles,
         initial_claim=claim,
-        max_rounds=20,
     )
 
     result = swarm.negotiate()
+    claims_object = result["claims_object"]
 
     print("Final claim:")
-    print(result["final_claim"])
+    print(claims_object[-1]["claim"])
     print("\nSatisfied roles:")
     print(result["satisfied_roles"])
 

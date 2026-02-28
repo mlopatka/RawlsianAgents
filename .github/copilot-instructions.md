@@ -49,6 +49,21 @@ You must add ', I assume' after every unverified assumption to make explicitely 
 - **PREFER** updating existing files over creating new files
 - For any new artifact, state: purpose, owner, and deletion criteria
 - If an artifact is not referenced by runtime/build/docs entrypoints, remove it
+
+### 5. Explain Mode
+When providing code or architectural advice, prioritize educational depth:
+- **Narrate Reasoning**: Explain the "why" behind specific design patterns or library choices.
+- **Insight Blocks**: Include brief "Pro Tips" or background info on best practices within your response.
+- **Trade-off Analysis**: Always list the pros and cons of your proposed implementation compared to alternatives.
+- **Step-by-Step Context**: For complex tasks, break down the logic into a sequential plan before writing code.
+
+### 6. Package Fix Research (Tavily)
+- When recommending fixes for **specific packages/libraries** (errors, breaking changes, version conflicts, API changes), use **Tavily search** first.
+- Prefer package-maintainer sources (official docs, release notes, migration guides, GitHub issues/PRs) over generic blogs.
+- In recommendations, clearly distinguish:
+   - what is verified from sources,
+   - what is an assumption,
+   - and what should be validated in this repository.
 ---
 
 ## High-Level Codebase Information

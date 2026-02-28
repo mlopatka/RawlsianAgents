@@ -22,18 +22,32 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
 ### Pipeline Stages
 
 1. **Claim Extraction & Classification** – Parse contract text and classify claims as *factual* or *negotiable*.
-2. **Negotiation Swarm** – Run multi-role negotiation over a claim until all roles are satisfied or `max_rounds` is reached:
-  - Role nodes revise the latest claim and append adjustment notes
-  - Impartial spectator appends neutral perspective suggestions
-  - Round reset node restarts role turn-tracking between rounds
+2. **Negotiation Swarm** – Run multi-role rolling negotiation over a claim until consensus or max iterations is reached:
+  - Role nodes receive full claim history and may append a new claim version
+  - Impartial spectator can be selected at any turn and adds neutral diagnostics
+  - Routing is random across roles + spectator
 3. **Negotiation Output** – Return the final claim plus traceable negotiation artifacts:
-  - `final_claim`, `adjustment_notes`, `satisfied_roles`
-  - `rounds`, `agreement_count`, `success (all roles satisfied)`
+  - `claims_object`, `adjustment_notes`, `satisfied_roles`
+  - `iterations`, `agreement_count`, `success`
 
 ## Prerequisites
 
 - Python 3.14+
 - OpenAI-compatible API (e.g. OpenAI, Nebius AI) for chat **or** a local open-source LLM (see below)
+
+## Optional: Tavily MCP for Web Docs Search
+
+If you want AI tooling in your editor to query live web docs, this workspace includes a starter MCP config:
+
+- `.vscode/mcp.json`
+
+Setup steps:
+
+1. Get a Tavily API key from [tavily.com](https://www.tavily.com/).
+2. Edit `.vscode/mcp.json` and replace `<your-api-key>` with your real key.
+3. Restart your MCP-compatible client/editor so the new server is loaded.
+
+The included configuration uses Tavily's remote MCP endpoint through `mcp-remote`.
 
 ## Dependency Management (uv)
 
@@ -161,12 +175,12 @@ initial_claim = (
 swarm = NegotiationSwarm(
     roles=roles,
     initial_claim=initial_claim,
-  max_rounds=20,
 )
 
 result = swarm.negotiate()
-print(f"Final claim: {result['final_claim']}")
-print(f"Completed in {result['rounds']} rounds")
+final_claim = result["claims_object"][-1]["claim"]
+print(f"Final claim: {final_claim}")
+print(f"Completed in {result['iterations']} iterations")
 print(f"Success: {result['success']}")
 print(f"Satisfied roles: {result['satisfied_roles']}")
 ```
@@ -175,19 +189,18 @@ See [examples/negotiate_claim.py](examples/negotiate_claim.py) for more examples
 
 ### Current NegotiationSwarm Behavior
 
-- Constructor: `NegotiationSwarm(roles, initial_claim, max_rounds=20)`
-- Role nodes evaluate and potentially revise `latest_claim` using DSPy `RoleEvaluation`
-- Satisfaction is tracked in `satisfied_roles` and role participation in `roles_spoken_this_round`
-- After each full round-robin, spectator appends neutral suggestions to `adjustment_notes`
-- A dedicated `reset_round` node resets round bookkeeping before the next round
-- Negotiation ends when all roles are satisfied or `max_rounds` is reached
+- Constructor: `NegotiationSwarm(roles, initial_claim)` with `max_iterations = len(roles) * 10`
+- Role nodes evaluate with full `claims_object` history and may append a new claim version
+- Satisfaction is tracked in `satisfied_roles` and per-version confirmations in `role_last_confirmed_version`
+- Spectator can be selected at any turn and emits structured diagnostics (`LOOP_STATUS`, `GRIDLOCK_SUMMARY`, `PROPOSED_POV`)
+- Negotiation ends on consensus for the current claim version or when `max_iterations` is reached
 
 Return payload includes:
 
-- `original_claim`
-- `final_claim`
+- `claims_object`
 - `adjustment_notes`
-- `rounds`
+- `spectator_reports`
+- `iterations`
 - `agreement_count`
 - `success`
 - `satisfied_roles`
@@ -214,13 +227,17 @@ Runs the current `NegotiationSwarm` flow and prints the final claim plus satisfa
 
 `negotiate()` and `negotiate_async()` return:
 
-- `original_claim`
-- `final_claim`
+- `claims_object`
 - `adjustment_notes`
-- `rounds`
+- `spectator_reports`
+- `iterations`
 - `agreement_count`
 - `success`
 - `satisfied_roles`
+
+Notes:
+- `claims_object[0]` is the original claim (`version=0`), and `claims_object[-1]` is the latest claim.
+- `agreement_count` is a cumulative count of unchanged-claim confirmations over time.
 
 ## Environment
 
