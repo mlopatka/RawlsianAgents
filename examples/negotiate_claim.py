@@ -18,6 +18,8 @@ def main() -> None:
     result = swarm.negotiate()
     claims_object = result["claims_object"]
 
+    print("Initial claim:")
+    print(claims_object[0]["claim"])
     print("Final claim:")
     print(claims_object[-1]["claim"])
     print("\nSatisfied roles:")
