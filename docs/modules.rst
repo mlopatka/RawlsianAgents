@@ -10,5 +10,4 @@ rawlsianagents Package
 .. toctree::
    :maxdepth: 2
 
-   api/claims_extractor
-   api/config
+   api/rawlsianagents

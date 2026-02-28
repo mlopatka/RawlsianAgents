@@ -12,7 +12,7 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
 └─────────────────────┘     └─────────────────────┘     └─────────────────────┘
          │                           │                            │
          │                           │                            ▼
-    Factual vs.               Amendment Rounds          ┌─────────────────────┐
+    Factual vs.               Amendment Iterations      ┌─────────────────────┐
     Negotiable                Per Claim Tracking        │  4. Fairness Metrics│
     Claims                    Dispute Score             │  - Dispute Score    │
                                                         │  - BERT Similarity  │
