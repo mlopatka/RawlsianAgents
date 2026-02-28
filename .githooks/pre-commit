@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "[pre-commit] Running isort..."
+isort .
+
+echo "[pre-commit] Running ruff check --fix..."
+ruff check . --fix
+
+echo "[pre-commit] Checks complete."

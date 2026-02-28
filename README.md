@@ -85,6 +85,21 @@ After running `uv sync`, install the package in development mode to make `rawlsi
 uv pip install -e .
 ```
 
+### Shared Git Hooks (Recommended)
+
+This repository includes a tracked pre-commit hook at [.githooks/pre-commit](.githooks/pre-commit) so all developers can use the same checks.
+
+Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook runs before each commit:
+
+- `isort .`
+- `ruff check . --fix`
+
 ## View Documentation Locally
 
 Build the Sphinx docs:
