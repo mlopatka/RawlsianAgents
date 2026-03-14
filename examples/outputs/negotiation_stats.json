@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-03-14T16:25:10.548303+00:00",
+  "roles": [
+    "LeVan family",
+    "bride",
+    "groom",
+    "potential children"
+  ],
+  "iterations": 16,
+  "agreement_count": 10,
+  "success": true,
+  "claim_versions": 5,
+  "spectator_reports_count": 2,
+  "initial_claim": "The marriage contract excludes all of the husband's business interests from net family property and limits the wife's right to support.",
+  "final_claim": "The marriage contract shall include all of the husband's business interests in the net family property and provide equitable rights to spousal support for the wife, with a tiered support structure reflecting both parties' contributions and future needs, ensuring that no party disproportionately benefits from the agreement and that both parties engage in good faith negotiations regarding these terms.",
+  "semantic_distance": {
+    "model_name": "cross-encoder/stsb-roberta-base",
+    "raw_score": 0.3228825330734253,
+    "similarity": 0.06457650661468506,
+    "distance": 0.9354234933853149
+  },
+  "satisfied_roles": {
+    "LeVan family": true,
+    "bride": true,
+    "groom": true,
+    "potential children": true
+  },
+  "satisfied_roles_count": 4,
+  "unsatisfied_roles_count": 0,
+  "satisfaction_rate": 1.0
+}

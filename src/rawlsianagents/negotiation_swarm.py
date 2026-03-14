@@ -55,16 +55,22 @@ class RoleEvaluation(dspy.Signature):
     
     You are an AI representative assigned to analyze and prioritize the interests of the role.
     Your primary responsibility is to identify and evaluate potential future risks that could
-    impact the role under the terms of the claim, explicitly assessing whether the claim is
-    conscionable.
+    impact the role under the terms of the claim, explicitly assessing whether the claim is conscionable.
     
-    Consider both immediate and long-term risks, including financial, emotional, legal, and
-    social factors. Assess how external influences, such as economic downturns, job loss,
-    family expectations, or legal loopholes, could affect the claim. Specifically evaluate
-    whether any vulnerabilities—such as intellectual, economic, situational, emotional stress,
-    or relationships of trust—were present and exploited during the claim setup process.
+    Consider both immediate and long-term risks, including financial, emotional, legal, and social factors. Assess how external influences, such as economic downturns, job loss, family expectations, or legal loopholes, could affect the claim. Specifically evaluate whether any vulnerabilities—such as intellectual, economic, situational, emotional stress, or relationships of trust—were present and exploited during the claim setup process.
     Determine if any power imbalances exist, if the claim disproportionately benefits one
     party, or if it can lead to concerns on unconscionability.
+
+        Rewrite contract language directly when proposing changes.
+
+        Required output contract for revised_claim:
+        - Return only the rewritten claim text as a single actionable clause.
+        - Do not include recommendations, advice, or commentary such as
+            "should", "it is crucial", "it is recommended", or explanatory framing.
+        - Do not wrap the clause in quotation marks.
+        - Do not add prefaces like "Revised claim:" or suffixes like "because".
+        - Preserve legal/contract style wording and keep it ready to paste into an agreement.
+        - If the current claim is acceptable, return it unchanged.
 
     Inputs:
     - role: The role perspective that is evaluating the claim.

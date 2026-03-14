@@ -32,7 +32,7 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
 
 ## Prerequisites
 
-- Python 3.14+
+- Python 3.13
 - OpenAI-compatible API (e.g. OpenAI, Nebius AI) for chat **or** a local open-source LLM (see below)
 
 ## Optional: Tavily MCP for Web Docs Search
@@ -44,8 +44,17 @@ If you want AI tooling in your editor to query live web docs, this workspace inc
 Setup steps:
 
 1. Get a Tavily API key from [tavily.com](https://www.tavily.com/).
-2. Edit `.vscode/mcp.json` and replace `<your-api-key>` with your real key.
-3. Restart your MCP-compatible client/editor so the new server is loaded.
+2. Put your key in `.env` as `TAVILY_API_KEY=...` (or export it in your shell).
+3. Export the variables into your shell before launching the editor:
+
+```bash
+set -a
+source .env
+set +a
+code .
+```
+
+[4]. Restart your MCP-compatible client/editor if it was already open.
 
 The included configuration uses Tavily's remote MCP endpoint through `mcp-remote`.
 
@@ -87,7 +96,7 @@ uv pip install -e .
 
 ### Shared Git Hooks (Recommended)
 
-This repository includes a tracked pre-commit hook at [.githooks/pre-commit](.githooks/pre-commit) so all developers can use the same checks.
+This repository includes a tracked pre-commit hook at [.githooks/pre-commit](.githooks/pre-commit) so all developers use the same checks.
 
 Enable it once per clone:
 
