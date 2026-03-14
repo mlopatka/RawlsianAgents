@@ -34,26 +34,20 @@ The system provides a complete pipeline for:
 
 ### 3. Clean code practices
 - **Use PEP 8 for all Python code** e.g. no imports in the middle of the file, functions before classes, etc.
-- **Do not use computer specific paths** (e.g., `/home/<username>/RawlsianAgents`) in code or instructions
-- **Use relative paths** when referencing files within the repository
-- You must clearly indicate what part of what you say is assumption, and which part is grounded.
-You must add ', I assume' after every unverified assumption to make explicitely clear what is an assumption, and what is a verified fact.
+- **Do not use computer specific paths** (e.g., `/home/<username>/RawlsianAgents`) in code or instructions.
+- **Use relative paths** when referencing files within the repository.
+- Clearly distinguish grounded statements from assumptions; append `, I assume` to unverified assumptions.
 
 ### 4. No Bloat Policy
-- **DO NOT** add files, docs, examples, wrappers, abstractions, or features unless they materially improve core workflows (run, debug, extend, document)
-- A change is allowed only if it is at least one of the following:
-   - Required for build/runtime/test/docs generation
-   - Reused by 2+ real call sites
-   - Removes duplicated logic that creates maintenance risk
-   - Measurably improves developer workflow (setup, debugging, onboarding)
-- **PREFER** updating existing files over creating new files
-- For any new artifact, state: purpose, owner, and deletion criteria
-- If an artifact is not referenced by runtime/build/docs entrypoints, remove it
+- **DO NOT** add files, docs, examples, wrappers, abstractions, or features unless they materially improve core workflows.
+- Prefer updating existing files over creating new ones.
+- New artifacts are justified only if they are required for build/runtime/test/docs generation, reused by 2+ real call sites, remove risky duplication, or measurably improve developer workflow.
+- For any new artifact, state its purpose, owner, and deletion criteria.
+- If an artifact is not referenced by runtime/build/docs entrypoints, remove it.
 
 ### 5. Explain Mode
 When providing code or architectural advice, prioritize educational depth:
 - **Narrate Reasoning**: Explain the "why" behind specific design patterns or library choices.
-- **Insight Blocks**: Include brief "Pro Tips" or background info on best practices within your response.
 - **Trade-off Analysis**: Always list the pros and cons of your proposed implementation compared to alternatives.
 - **Step-by-Step Context**: For complex tasks, break down the logic into a sequential plan before writing code.
 
@@ -64,6 +58,11 @@ When providing code or architectural advice, prioritize educational depth:
    - what is verified from sources,
    - what is an assumption,
    - and what should be validated in this repository.
+
+### 7. Principle of Generality
+- **DO NOT** suggest exception-specific patches or band-aid fixes.
+- Apply the **Principle of Generality**: identify the underlying architectural flaw and propose a fundamental solution that makes the error state unrepresentable.
+- Prioritize root-cause resolution and long-term maintainability over symptom-based fixes.
 ---
 
 ## High-Level Codebase Information
