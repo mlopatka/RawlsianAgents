@@ -30,10 +30,26 @@ def _load_cross_encoder(model_name: str) -> CrossEncoder:
     return CrossEncoder(model_name)
 
 
-def _normalize_stsb_score(raw_score: float) -> float:
-    """Normalize STS-B style scores from [0, 5] to [0, 1]."""
+def _similarity_from_cross_encoder(
+    model: CrossEncoder,
+    initial_claim: str,
+    final_claim: str,
+) -> float:
+    """Return similarity in [0, 1] from the model's default prediction path.
 
-    return max(0.0, min(1.0, raw_score / 5.0))
+    For sentence-transformers CrossEncoder with ``num_labels == 1``, the default
+    ``predict`` path applies Sigmoid and returns probabilities in [0, 1].
+    We treat that value as similarity and reject other ranges explicitly.
+    """
+
+    score = float(model.predict([(initial_claim, final_claim)])[0])
+    if not 0.0 <= score <= 1.0:
+        raise ValueError(
+            "CrossEncoder score is outside [0, 1]. "
+            f"model={model.config._name_or_path!r}, num_labels={model.config.num_labels}, score={score}. "
+            "Use a similarity-configured CrossEncoder or provide an explicit calibration."
+        )
+    return score
 
 
 def compute_claim_semantic_distance(
@@ -43,18 +59,17 @@ def compute_claim_semantic_distance(
 ) -> SemanticDistanceMetrics:
     """Compute semantic similarity and distance between initial and final claims.
 
-    The default model (STS-B) returns raw scores in [0, 5]. These are normalized to
-    [0, 1] similarity so that distance can be represented as 1 - similarity.
+    Similarity is read from the CrossEncoder default prediction output, which is
+    expected to be in [0, 1] for similarity-configured models. Distance is 1 - similarity.
     """
 
     model = _load_cross_encoder(model_name)
-    raw_score = float(model.predict([(initial_claim, final_claim)])[0])
-    similarity = _normalize_stsb_score(raw_score)
+    similarity = _similarity_from_cross_encoder(model, initial_claim, final_claim)
     distance = 1.0 - similarity
 
     return SemanticDistanceMetrics(
         model_name=model_name,
-        raw_score=raw_score,
+        raw_score=similarity,
         similarity=similarity,
         distance=distance,
     )

@@ -105,10 +105,10 @@ def _plot_distributions(
     output_path: Path,
 ) -> None:
     metrics = [
-        ("semantic_distance", "Semantic Distance\n(initial → final claim)", (0.0, 1.0)),
-        ("iterations", "Iterations to Convergence", None),
-        ("claim_versions", "Claim Versions (rewrites)", None),
-        ("satisfaction_rate", "Satisfaction Rate", (0.0, 1.0)),
+        ("semantic_distance", "Semantic Distance\n(initial → final claim)"),
+        ("iterations", "Iterations to Convergence"),
+        ("claim_versions", "Claim Versions (rewrites)"),
+        ("satisfaction_rate", "Satisfaction Rate"),
     ]
     tier_specs = [
         (tier1, "Tier 1 — Unfair marriage claim", "#e07b54"),
@@ -125,7 +125,10 @@ def _plot_distributions(
         y=1.02,
     )
 
-    for ax, (metric, label, xlim) in zip(axes, metrics):
+    for ax, (metric, label) in zip(axes, metrics):
+        all_values = [
+            d[metric] for data, _, _ in tier_specs for d in data
+        ]
         for data, tier_label, color in tier_specs:
             values = [d[metric] for d in data]
             # Guard against degenerate distributions (e.g. all-identical values)
@@ -151,8 +154,18 @@ def _plot_distributions(
 
         ax.set_xlabel(label, fontsize=10)
         ax.set_ylabel("Density", fontsize=9)
-        if xlim:
-            ax.set_xlim(*xlim)
+        if metric == "semantic_distance":
+            min_val = min(all_values)
+            max_val = max(all_values)
+            left = max(0.0, min_val - 0.02)
+            right = min(1.0, max_val + 0.02)
+            ax.set_xlim(left, right)
+        elif metric == "iterations":
+            ax.set_xlim(0, max(all_values) + 1)
+        elif metric == "claim_versions":
+            ax.set_xlim(0, max(all_values) + 1)
+        elif metric == "satisfaction_rate":
+            ax.set_xlim(0.0, 1.0)
         ax.legend(fontsize=6.5, loc="upper right")
         sns.despine(ax=ax)
 
