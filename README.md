@@ -44,8 +44,20 @@ If you want AI tooling in your editor to query live web docs, this workspace inc
 Setup steps:
 
 1. Get a Tavily API key from [tavily.com](https://www.tavily.com/).
-2. Edit `.vscode/mcp.json` and replace `<your-api-key>` with your real key.
-3. Restart your MCP-compatible client/editor so the new server is loaded.
+2. Put your key in `.env` as `TAVILY_API_KEY=...` (or export it in your shell).
+3. Export the variables into your shell before launching the editor:
+
+```bash
+set -a
+source .env
+set +a
+code .
+```
+
+4. Keep `.vscode/mcp.json` unchanged; it reads `${env:TAVILY_API_KEY}`.
+5. Restart your MCP-compatible client/editor if it was already open.
+
+Note: `source .env` alone defines shell variables, but it does not reliably export them to child processes. The `set -a` form is what makes `${env:TAVILY_API_KEY}` available to the MCP server.
 
 The included configuration uses Tavily's remote MCP endpoint through `mcp-remote`.
 
