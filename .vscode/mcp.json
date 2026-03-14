@@ -5,7 +5,7 @@
       "args": [
         "-y",
         "mcp-remote",
-        "https://mcp.tavily.com/mcp/?tavilyApiKey=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"
+        "https://mcp.tavily.com/mcp/?tavilyApiKey=${env:TAVILY_API_KEY}"
       ],
       "env": {}
     }

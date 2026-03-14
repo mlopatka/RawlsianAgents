@@ -54,7 +54,10 @@ set +a
 code .
 ```
 
-[4]. Restart your MCP-compatible client/editor if it was already open.
+4. Keep `.vscode/mcp.json` unchanged; it reads `${env:TAVILY_API_KEY}`.
+5. Restart your MCP-compatible client/editor if it was already open.
+
+Note: `source .env` alone defines shell variables, but it does not reliably export them to child processes. The `set -a` form is what makes `${env:TAVILY_API_KEY}` available to the MCP server.
 
 The included configuration uses Tavily's remote MCP endpoint through `mcp-remote`.
 

@@ -150,3 +150,6 @@ docs/_build/
 .cursorignore
 .cursorindexingignore
 
+# Local MCP overrides (may contain machine-local credentials)
+.vscode/mcp.local.json
+
