@@ -1,5 +1,11 @@
 """Distribution analysis of negotiation outcomes across four experimental tiers.
 
+Workflow assumption for this experiment:
+- Roles receive bounded state only (current claim, last accepted claim, spectator POV).
+- Spectator reads full history and relays a neutral bounded perspective.
+- This design aims to reduce self-reinforcing tone cascades while preserving deliberation
+and disagreement.
+
 Tier 1 — Unfair marriage contract (LeVan case):
     The initial claim is objectively unfair. We run 30 independent negotiations
     and measure how much the swarm corrects it.
@@ -18,8 +24,8 @@ Tier 4 — Taxi fare split from unfair equal split (non-trivial recovery):
     Three passengers share a $30 taxi for 10, 20, and 30 miles respectively.
     The initial claim splits the fare equally ($10 each), which is objectively
     unfair by the Shapley principle (fair split: $3.33 / $8.33 / $18.34).
-    This tier tests whether the swarm converges toward Shapley-consistent
-    reasoning from first principles, without knowing the formula.
+    This tier tests whether the swarm still converges toward Shapley-consistent
+    reasoning from first principles under bounded-role inputs.
 """
 
 import asyncio

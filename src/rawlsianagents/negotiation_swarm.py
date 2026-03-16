@@ -4,6 +4,30 @@ Negotiation Swarm Module
 This module implements a multi-agent negotiation system where agents representing
 different roles negotiate a claim until all parties are satisfied. Uses LangGraph
 to create a swarm pattern with random actor selection.
+
+Information flow
+----------------
+Roles and the spectator deliberately receive different views of the negotiation
+state to prevent tone lock-in (combative or complacent cascades):
+
+- **Role nodes** see only bounded, neutral state:
+  - ``current_claim`` — the live claim text on the table
+  - ``last_accepted_claim`` — pre-rewrite anchor to limit drift
+  - ``spectator_pov`` — the spectator's latest neutral reframing (if any)
+  Roles never see the raw history, peer objections, or accumulated notes.
+
+- **Spectator node** sees the full history:
+  - ``claims_object`` — complete versioned claim list
+  - ``adjustment_notes`` — accumulated role and spectator commentary
+  - ``satisfied_roles`` — current per-role satisfaction map
+  It distils this into a single ``spectator_pov`` string that roles can read
+  next turn, acting as a tone-neutral relay between history and forward reasoning.
+
+- Both roles and the spectator use ``dspy.ChainOfThought`` so that intermediate
+  reasoning is explicit and decoupled from the surface pattern of the input.
+
+- Actor selection is uniform-random over all roles + spectator, with the
+  constraint that the same actor cannot be chosen twice in a row.
 """
 
 import random
@@ -32,13 +56,19 @@ class NegotiationState(TypedDict, total=False):
     """State for the negotiation process.
 
     Fields:
-        claims_object: Versioned claim history for debugging and convergence checks.
-        adjustment_notes: Version control notes where agents and spectator append reasoning.
-        spectator_reports: Structured spectator diagnostics for auditability.
-        satisfied_roles: Track satisfaction status (SATISFIED/UNSATISFIED) per role.
-        role_last_confirmed_version: Claim version each role last confirmed as satisfied.
-        agreement_count: Cumulative count of unchanged-claim confirmations over time.
-        iteration_count: Total number of role interactions (for statistics).
+    - claims_object: Versioned claim history for debugging and convergence checks.
+    - adjustment_notes: Full history feed written by all nodes; only the
+      spectator reads this as input. Roles receive bounded state instead to
+      reduce tone lock-in.
+    - spectator_reports: Structured spectator diagnostics for auditability.
+    - satisfied_roles: Satisfaction status per role for the current claim.
+    - role_last_confirmed_version: Claim version each role last confirmed.
+    - agreement_count: Cumulative count of unchanged-claim confirmations.
+    - iteration_count: Total number of actor interactions.
+    - last_accepted_claim: Pre-rewrite baseline claim text used as an anti-drift
+      reference. It is not guaranteed to be unanimously accepted.
+    - last_actor: Actor that just completed a turn (used to avoid repeats).
+    - spectator_pov: Most recent neutral spectator perspective relayed to roles.
     """
 
     claims_object: list[dict[str, Any]]
@@ -48,43 +78,53 @@ class NegotiationState(TypedDict, total=False):
     role_last_confirmed_version: dict[str, int]
     agreement_count: int
     iteration_count: int
+    last_accepted_claim: str
+    last_actor: str | None
+    spectator_pov: str
 
 
 class RoleEvaluation(dspy.Signature):
     """Evaluate a claim from a specific role's perspective.
-    
-    You are an AI representative assigned to analyze and prioritize the interests of the role.
-    Your primary responsibility is to identify and evaluate potential future risks that could
-    impact the role under the terms of the claim, explicitly assessing whether the claim is conscionable.
-    
-    Consider both immediate and long-term risks, including financial, emotional, legal, and social factors. Assess how external influences, such as economic downturns, job loss, family expectations, or legal loopholes, could affect the claim. Specifically evaluate whether any vulnerabilities—such as intellectual, economic, situational, emotional stress, or relationships of trust—were present and exploited during the claim setup process.
-    Determine if any power imbalances exist, if the claim disproportionately benefits one
-    party, or if it can lead to concerns on unconscionability.
 
-        Rewrite contract language directly when proposing changes.
+    You are an AI representative assigned to analyze and prioritize the interests
+    of the role. Your primary responsibility is to identify and evaluate potential
+    future risks that could impact the role under the terms of the claim,
+    explicitly assessing whether the claim is conscionable.
 
-        Required output contract for revised_claim:
-        - Return only the rewritten claim text as a single actionable clause.
-        - Do not include recommendations, advice, or commentary such as
-            "should", "it is crucial", "it is recommended", or explanatory framing.
-        - Do not wrap the clause in quotation marks.
-        - Do not add prefaces like "Revised claim:" or suffixes like "because".
-        - Preserve legal/contract style wording and keep it ready to paste into an agreement.
-        - If the current claim is acceptable, return it unchanged.
+    Consider both immediate and long-term risks, including financial, emotional,
+    legal, and social factors. Assess how external influences (economic downturns,
+    job loss, family expectations, legal loopholes) could affect the claim.
+    Evaluate whether any vulnerabilities—intellectual, economic, situational,
+    emotional, or trust-based—were present and exploited. Determine if power
+    imbalances exist, if the claim disproportionately benefits one party, or if
+    it raises concerns about unconscionability.
 
-    Inputs:
-    - role: The role perspective that is evaluating the claim.
-    - claims_object: Full versioned claim history from original version to latest.
-    - adjustment_notes: Negotiation notes/history accumulated so far.
-    
-    Output:
-    - revised_claim: If unsatisfied, output the modified claim. If satisfied, output the unchanged claim.
-    - adjustment_note: Brief explanation of changes made (if claim changed) or why unchanged claim is acceptable.
+    Rewrite contract language directly when proposing changes.
+
+    Required output contract for revised_claim:
+    - Return only the rewritten claim text as a single actionable clause.
+    - Do not include recommendations, advice, or commentary such as
+      "should", "it is crucial", "it is recommended", or explanatory framing.
+    - Do not wrap the clause in quotation marks.
+    - Do not add prefaces like "Revised claim:" or suffixes like "because".
+    - Preserve legal/contract style wording, ready to paste into an agreement.
+    - If the current claim is acceptable, return it unchanged.
+
+        Inputs:
+        - role: Role perspective evaluating the claim.
+        - current_claim: Claim text currently on the table.
+        - last_accepted_claim: Structural baseline from before the latest rewrite.
+        - spectator_pov: Neutral reframing from the impartial spectator, if any.
+
+        Outputs:
+        - revised_claim: Modified claim if unsatisfied; unchanged claim if satisfied.
+        - adjustment_note: Brief rationale for the change or acceptance.
     """
 
     role: str = dspy.InputField()
-    claims_object: list[dict[str, Any]] = dspy.InputField()
-    adjustment_notes: str = dspy.InputField()
+    current_claim: str = dspy.InputField()
+    last_accepted_claim: str = dspy.InputField()
+    spectator_pov: str = dspy.InputField()
     revised_claim: str = dspy.OutputField()
     adjustment_note: str = dspy.OutputField()
 
@@ -101,10 +141,10 @@ class SpectatorAnalysis(dspy.Signature):
     Inputs:
     - claims_object: Full versioned claim history from version 0 to latest.
     - adjustment_notes: Aggregated notes produced by roles and spectator so far.
-    - satisfied_roles: Current per-role satisfaction map for the latest claim version.
+    - satisfied_roles: Per-role satisfaction map for the latest claim version.
 
     Outputs:
-    - loop_status: "No loop detected" or concise cycle summary (e.g., "v2 -> v3 -> v2").
+    - loop_status: "No loop detected" or concise cycle summary.
     - gridlock_summary: Brief reason parties are stuck.
     - proposed_pov: Impartial perspective that reframes the conflict.
     """
@@ -224,15 +264,20 @@ class NegotiationSwarm:
             claim_version = int(claims_object[-1].get("version", 0))
             adjustment_notes = state.get("adjustment_notes", "")
             iteration_count = state.get("iteration_count", 0)
-            
+            last_accepted_claim = state.get("last_accepted_claim", self.initial_claim)
+            spectator_pov = state.get("spectator_pov", "")
+
             logger.info(f"Interaction {iteration_count}: {role} reviewing claim")
-            
-            # Use DSPy to evaluate the claim from this role's perspective
-            evaluate = dspy.Predict(RoleEvaluation)
+
+            # Roles receive bounded state only — not the full history.
+            # Full history (adjustment_notes, claims_object) is preserved in state
+            # for the spectator but is NOT passed here to avoid tone lock-in.
+            evaluate = dspy.ChainOfThought(RoleEvaluation)
             response = evaluate(
                 role=role,
-                claims_object=claims_object,
-                adjustment_notes=adjustment_notes or "",
+                current_claim=latest_claim,
+                last_accepted_claim=last_accepted_claim,
+                spectator_pov=spectator_pov,
             )
             
             revised_claim = response.revised_claim.strip()
@@ -240,8 +285,8 @@ class NegotiationSwarm:
             
             # Parse satisfaction status
             claim_changed = revised_claim != latest_claim
-            
-            # Append adjustment note to history
+
+            # Append to full history (spectator-only feed).
             new_notes = adjustment_notes
             if new_notes:
                 new_notes += "\n\n"
@@ -253,6 +298,8 @@ class NegotiationSwarm:
             new_notes += f"[{role}] {adjustment_note}"
 
             if claim_changed:
+                # Preserve caller's last accepted claim before clobbering.
+                new_last_accepted_claim = latest_claim
                 satisfied_roles = {role_name: False for role_name in self.roles}
                 role_last_confirmed_version = {
                     role_name: -1 for role_name in self.roles
@@ -267,30 +314,30 @@ class NegotiationSwarm:
                     },
                 ]
             else:
+                new_last_accepted_claim = last_accepted_claim
                 satisfied_roles = state.get("satisfied_roles", {}).copy()
                 role_last_confirmed_version = state.get(
                     "role_last_confirmed_version", {}
                 ).copy()
                 new_claim_version = claim_version
                 updated_claims_object = claims_object
-            
-            satisfied_roles[role] = True # The role is satisfied with the revised claim (even if unchanged)
+
+            satisfied_roles[role] = True
             role_last_confirmed_version[role] = new_claim_version
 
             # Increment only when a role confirms the existing claim (no revision).
             agreement_count = state.get("agreement_count", 0) + int(not claim_changed)
 
-            # Update state
-            updated_state: dict[str, Any] = {
+            return {
                 "claims_object": updated_claims_object,
                 "adjustment_notes": new_notes,
                 "satisfied_roles": satisfied_roles,
                 "role_last_confirmed_version": role_last_confirmed_version,
                 "iteration_count": iteration_count + 1,
                 "agreement_count": agreement_count,
+                "last_accepted_claim": new_last_accepted_claim,
+                "last_actor": role,
             }
-            
-            return updated_state
         
         return role_node
     
@@ -322,7 +369,7 @@ class NegotiationSwarm:
 
             logger.info("Spectator analyzing negotiation state")
             
-            analyze = dspy.Predict(SpectatorAnalysis)
+            analyze = dspy.ChainOfThought(SpectatorAnalysis)
             response = analyze(
                 claims_object=claims_object,
                 adjustment_notes=adjustment_notes or "None",
@@ -356,6 +403,8 @@ class NegotiationSwarm:
                 "adjustment_notes": new_notes,
                 "spectator_reports": spectator_reports,
                 "iteration_count": iteration_count + 1,
+                "last_actor": "spectator",
+                "spectator_pov": parsed_report["PROPOSED_POV"],
             }
                         
         return spectator_node
@@ -407,9 +456,13 @@ class NegotiationSwarm:
         )
     
     def _random_next_actor(self, state: NegotiationState) -> str:
-        """Select the next actor randomly (any role or impartial spectator)."""
+        """Select the next actor randomly, excluding the actor that just acted."""
 
-        actor = random.choice(self.roles + ["spectator"])
+        last_actor = state.get("last_actor")
+        candidates = [
+            r for r in self.roles + ["spectator"] if r != last_actor
+        ]
+        actor = random.choice(candidates)
         if actor == "spectator":
             return "spectator"
         return self._role_to_node_name(actor)
@@ -442,8 +495,11 @@ class NegotiationSwarm:
             "role_last_confirmed_version": {role: -1 for role in self.roles},
             "agreement_count": 0,
             "iteration_count": 0,
+            "last_accepted_claim": self.initial_claim,
+            "last_actor": None,
+            "spectator_pov": "",
         }
-        
+
         final_state = self.graph.invoke(initial_state)  # type: ignore
         
         success = self._has_consensus_on_current_claim(final_state)
@@ -487,8 +543,11 @@ class NegotiationSwarm:
             "role_last_confirmed_version": {role: -1 for role in self.roles},
             "agreement_count": 0,
             "iteration_count": 0,
+            "last_accepted_claim": self.initial_claim,
+            "last_actor": None,
+            "spectator_pov": "",
         }
-        
+
         # Run the graph asynchronously
         final_state = await self.graph.ainvoke(initial_state)  # type: ignore
         

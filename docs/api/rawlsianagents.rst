@@ -1,6 +1,14 @@
 rawlsianagents package
 ======================
 
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 4
+
+   rawlsianagents.utils
+
 Submodules
 ----------
 

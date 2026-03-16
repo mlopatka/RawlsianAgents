@@ -154,5 +154,5 @@ docs/_build/
 .vscode/mcp.local.json
 
 # Outputs from examples (may contain sensitive data or be too large for version control)
-examples/outputs
+examples/outputs/*
 

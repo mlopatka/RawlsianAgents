@@ -20,6 +20,16 @@ make html
 
 This will generate the HTML documentation in the `_build/html/` directory.
 
+Before building HTML, regenerate API stubs when public Python signatures,
+docstrings, or state fields change:
+
+```bash
+uv run sphinx-apidoc --force --no-toc --separate -o docs/api src/rawlsianagents
+```
+
+This is especially relevant for negotiation workflow updates in
+`src/rawlsianagents/negotiation_swarm.py`.
+
 Open `_build/html/index.html` in your browser to view the documentation.
 
 ## Building Other Formats
