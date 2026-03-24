@@ -120,9 +120,8 @@ Build the Sphinx docs:
 uv run make -C docs html
 ```
 
-```bash
 Windows-native command, run from repo root:
-
+```bash
 uv run sphinx-apidoc --force --no-toc --separate -o docs/api src/rawlsianagents
 uv run sphinx-build -b html docs docs/_build/html
 ```
