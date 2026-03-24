@@ -120,6 +120,13 @@ Build the Sphinx docs:
 uv run make -C docs html
 ```
 
+```bash
+Windows-native command, run from repo root:
+
+uv run sphinx-apidoc --force --no-toc --separate -o docs/api src/rawlsianagents
+uv run sphinx-build -b html docs docs/_build/html
+```
+
 - The `html` target depends on `apidoc` (`html: apidoc`), so it runs first.
 - `apidoc` calls `sphinx-apidoc` to regenerate API `.rst` stubs in `docs/api` from `src/rawlsianagents`.
 - This keeps API pages aligned with the current Python modules before HTML generation.
