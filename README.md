@@ -302,7 +302,14 @@ RawlsianAgents/
 │       └── __init__.py            # Public package exports
 ├── examples/
 │   ├── extract_claims.py          # Example: Extract claims
-│   └── negotiate_claim.py         # Example: Negotiation swarm
+│   ├── negotiate_claim.py         # Example: Negotiation swarm
+|   └── contracts/                  # Collection of contracts from CUAD dataset
+|       ├── 2000/
+|       ├── 2001/
+|       ├── 2002/
+|       ...
+|       ├── 2019/
+|       └── 2020/
 ├── docs/
 │   ├── index.rst                  # Sphinx entrypoint
 │   ├── modules.rst                # API module index
