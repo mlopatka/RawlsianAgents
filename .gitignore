@@ -143,6 +143,9 @@ cython_debug/
 # Documentation build output
 docs/_build/
 
+# Example contracts from CUAD dataset
+examples/contracts/
+
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
