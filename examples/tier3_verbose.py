@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from rawlsianagents import NegotiationSwarm
+from rawlsianagents.utils import compute_claim_semantic_distance
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -40,11 +41,12 @@ async def _run_one(run_id: int, claim: str, roles: list[str]) -> dict:
     swarm = NegotiationSwarm(roles=roles, initial_claim=claim)
     result = await swarm.negotiate_async()
     final_claim = result["claims_object"][-1]["claim"]
+    sem = compute_claim_semantic_distance(claim, final_claim)
     return {
         "run_id": run_id,
         "initial_claim": claim,
         "final_claim": final_claim,
-        "claim_preserved": final_claim.strip() == claim.strip(),
+        "semantic_distance": sem.distance,
         "iterations": result["iterations"],
         "agreement_count": result["agreement_count"],
         "claim_versions": len(result["claims_object"]),
@@ -68,7 +70,7 @@ async def main() -> None:
             f"\n[RUN {i}] success={run['success']} | "
             f"iterations={run['iterations']} | "
             f"claim_versions={run['claim_versions']} | "
-            f"claim_preserved={run['claim_preserved']}"
+            f"semantic_distance={run['semantic_distance']:.4f}"
         )
         print(f"  FINAL: {run['final_claim']}")
         print(f"  NOTES:\n{run['adjustment_notes']}")
