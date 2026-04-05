@@ -156,3 +156,6 @@ examples/contracts/
 # Local MCP overrides (may contain machine-local credentials)
 .vscode/mcp.local.json
 
+# Outputs from examples (may contain sensitive data or be too large for version control)
+examples/outputs/*
+

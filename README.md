@@ -15,7 +15,7 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
     Factual vs.               Amendment Iterations      ┌─────────────────────┐
     Negotiable                Per Claim Tracking        │  4. Fairness Metrics│
     Claims                    Dispute Score             │  - Dispute Score    │
-                                                        │  - BERT Similarity  │
+                                                        │  - Semantic Distance│
                                                         └─────────────────────┘
 ```
 
@@ -23,16 +23,16 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
 
 1. **Claim Extraction & Classification** – Parse contract text and classify claims as *factual* or *negotiable*.
 2. **Negotiation Swarm** – Run multi-role rolling negotiation over a claim until consensus or max iterations is reached:
-  - Role nodes receive full claim history and may append a new claim version
-  - Impartial spectator can be selected at any turn and adds neutral diagnostics
-  - Routing is random across roles + spectator
+  - Role nodes receive bounded state only (`current_claim`, `last_accepted_claim`, `spectator_pov`) and may accept or rewrite the claim.
+  - Impartial spectator can be selected at any turn, reads full history, and relays a neutral bounded perspective.
+  - Routing is random across roles + spectator, avoiding sequential turns for the same actor.
 3. **Negotiation Output** – Return the final claim plus traceable negotiation artifacts:
   - `claims_object`, `adjustment_notes`, `satisfied_roles`
   - `iterations`, `agreement_count`, `success`
 
 ## Prerequisites
 
-- Python 3.14+
+- Python 3.13
 - OpenAI-compatible API (e.g. OpenAI, Nebius AI) for chat **or** a local open-source LLM (see below)
 
 ## Optional: Tavily MCP for Web Docs Search
@@ -54,10 +54,7 @@ set +a
 code .
 ```
 
-4. Keep `.vscode/mcp.json` unchanged; it reads `${env:TAVILY_API_KEY}`.
-5. Restart your MCP-compatible client/editor if it was already open.
-
-Note: `source .env` alone defines shell variables, but it does not reliably export them to child processes. The `set -a` form is what makes `${env:TAVILY_API_KEY}` available to the MCP server.
+4. Restart your MCP-compatible client/editor if it was already open.
 
 The included configuration uses Tavily's remote MCP endpoint through `mcp-remote`.
 
@@ -83,12 +80,6 @@ Add a dev dependency:
 uv add --dev <package>
 ```
 
-Update the lockfile after manual edits to [pyproject.toml](pyproject.toml):
-
-```bash
-uv lock
-```
-
 ### Installing the Package
 
 After running `uv sync`, install the package in development mode to make `rawlsianagents` importable:
@@ -99,7 +90,7 @@ uv pip install -e .
 
 ### Shared Git Hooks (Recommended)
 
-This repository includes a tracked pre-commit hook at [.githooks/pre-commit](.githooks/pre-commit) so all developers can use the same checks.
+This repository includes a tracked pre-commit hook at [.githooks/pre-commit](.githooks/pre-commit) so all developers use the same checks.
 
 Enable it once per clone:
 
@@ -223,10 +214,18 @@ See [examples/negotiate_claim.py](examples/negotiate_claim.py) for more examples
 ### Current NegotiationSwarm Behavior
 
 - Constructor: `NegotiationSwarm(roles, initial_claim)` with `max_iterations = len(roles) * 10`
-- Role nodes evaluate with full `claims_object` history and may append a new claim version
+- Role nodes evaluate using bounded state only: `current_claim`, `last_accepted_claim`, and `spectator_pov`
+- Role nodes do not see full negotiation history (`claims_object` or `adjustment_notes`)
+- Roles and spectator both use chain-of-thought evaluation (`dspy.ChainOfThought`)
 - Satisfaction is tracked in `satisfied_roles` and per-version confirmations in `role_last_confirmed_version`
-- Spectator can be selected at any turn and emits structured diagnostics (`LOOP_STATUS`, `GRIDLOCK_SUMMARY`, `PROPOSED_POV`)
+- Any role rewrite resets all roles to unsatisfied for the new version; each role must re-confirm on that version
+- Spectator can be selected at any turn, reads full history, and emits structured diagnostics (`LOOP_STATUS`, `GRIDLOCK_SUMMARY`, `PROPOSED_POV`)
+- Spectator relays one neutral bounded signal to roles via `spectator_pov` (overwritten each spectator turn)
+- Routing is random across roles + spectator, with one constraint: the same actor cannot act twice in a row
 - Negotiation ends on consensus for the current claim version or when `max_iterations` is reached
+
+Design rationale:
+- This bounded-role / full-spectator split is intended to reduce reinforcement cascades (combative->combative or complacent->complacent) while preserving a shared forum through the spectator's neutral relay.
 
 Return payload includes:
 
@@ -292,15 +291,20 @@ Optional:
 RawlsianAgents/
 ├── README.md
 ├── pyproject.toml         # Dependencies (uv)
+├── .python-version        # Python toolchain pin
 ├── .env.template          # Environment template
 ├── data/                  # Sample agreements and inputs
 ├── src/
 │   └── rawlsianagents/
+│       ├── __init__.py            # Public package exports
 │       ├── config.py              # LLM config (cloud vs local)
 │       ├── claims_extractor.py    # Claim extraction & classification
 │       ├── negotiation_swarm.py   # Multi-agent negotiation swarm
-│       └── __init__.py            # Public package exports
+│       └── utils/
+│           ├── __init__.py        # Utility exports
+│           └── metrics.py         # Semantic distance metrics
 ├── examples/
+│   ├── distribution_analysis.py   # Example: 4-tier distribution experiment
 │   ├── extract_claims.py          # Example: Extract claims
 │   ├── negotiate_claim.py         # Example: Negotiation swarm
 |   └── contracts/                  # Collection of contracts from CUAD dataset
@@ -311,6 +315,7 @@ RawlsianAgents/
 |       ├── 2019/
 |       └── 2020/
 ├── docs/
+│   ├── README.md                  # Docs build guide
 │   ├── index.rst                  # Sphinx entrypoint
 │   ├── modules.rst                # API module index
 │   ├── api/                       # API rst pages
@@ -328,8 +333,8 @@ RawlsianAgents/
 - **Per-Claim Dispute Score** = `rounds_for_claim_i`  
   Identifies the most contentious clauses.
 
-- **BERT Score** = `semantic_similarity(original_contract, final_contract)`  
-  Measures magnitude of required changes (lower = more revisions needed).
+- **Semantic Distance** = `distance(initial_claim, final_claim)`  
+  Computed with the cross-encoder metric utility; higher values indicate greater semantic drift.
 
 ## References
 

@@ -6,7 +6,7 @@ RawlsianAgents is an implementation of LLM-based contract negotiation and fairne
 **Features:**
 
 - **Claim Extraction & Classification** – Parse contracts and classify claims as factual (descriptive) or negotiable (affecting any of the parties)
-- **Negotiation Simulation** – Multi-agent debate for each negotiable claim with amendment tracking
+- **Negotiation Simulation** – Multi-agent debate with bounded role inputs and spectator-mediated history relay
 - **Contract Drafting** – Synthesize factual claims + revised negotiable claims into final contracts
 - **Fairness Assessment** – Compute dispute scores and semantic similarity metrics to gauge initial injustice/ambiguity
 - Support for both cloud (OpenAI) and local (Ollama) LLMs
