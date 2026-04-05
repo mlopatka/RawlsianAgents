@@ -83,42 +83,50 @@ class NegotiationState(TypedDict, total=False):
     spectator_pov: str
 
 
+# Fairness criterion: envy-freeness (Foley, 1967 — "Resource Allocation and the Public
+# Sector", Yale Economic Essays 7(1): 45-98). An allocation is envy-free when no party
+# would prefer to exchange their complete position — what they receive and what they must
+# do to receive it — with any other party's position.
+# https://en.wikipedia.org/wiki/Envy-freeness
 class RoleEvaluation(dspy.Signature):
-    """Evaluate a claim from a specific role's perspective.
+    """Evaluate a claim from a specific role's perspective using the envy-freeness criterion.
 
-    You are an AI representative assigned to analyze and prioritize the interests
-    of the role. Your primary responsibility is to identify and evaluate potential
-    future risks that could impact the role under the terms of the claim,
-    explicitly assessing whether the claim is conscionable.
+    You represent a specific role in this negotiation. First, analyse the claim thoroughly:
+    consider both immediate and long-term risks, including financial, emotional, legal, and
+    social factors. Assess how external influences, such as economic downturns, job loss,
+    family expectations, or legal loopholes, could affect the claim. Specifically evaluate
+    whether any vulnerabilities — such as intellectual, economic, situational, emotional stress,
+    or relationships of trust — were present and exploited during the claim setup process.
+    Identify any power imbalances or concerns about unconscionability.
 
-    Consider both immediate and long-term risks, including financial, emotional,
-    legal, and social factors. Assess how external influences (economic downturns,
-    job loss, family expectations, legal loopholes) could affect the claim.
-    Evaluate whether any vulnerabilities—intellectual, economic, situational,
-    emotional, or trust-based—were present and exploited. Determine if power
-    imbalances exist, if the claim disproportionately benefits one party, or if
-    it raises concerns about unconscionability.
+    Then apply the envy-freeness test to decide whether to revise:
 
-    Rewrite contract language directly when proposing changes.
+    For every other party named in the claim, ask yourself:
+    "Would I prefer to exchange my complete position — everything I will receive and
+    everything I must do to receive it — with theirs?"
 
-    Required output contract for revised_claim:
-    - Return only the rewritten claim text as a single actionable clause.
-    - Do not include recommendations, advice, or commentary such as
-      "should", "it is crucial", "it is recommended", or explanatory framing.
-    - Do not wrap the clause in quotation marks.
-    - Do not add prefaces like "Revised claim:" or suffixes like "because".
-    - Preserve legal/contract style wording, ready to paste into an agreement.
-    - If the current claim is acceptable, return it unchanged.
+    If you would NOT prefer to exchange with any other party, the claim is envy-free and
+    should be returned unchanged, even if individual terms look asymmetric in isolation.
 
-        Inputs:
-        - role: Role perspective evaluating the claim.
-        - current_claim: Claim text currently on the table.
-        - last_accepted_claim: Structural baseline from before the latest rewrite.
-        - spectator_pov: Neutral reframing from the impartial spectator, if any.
+    If you WOULD prefer to exchange with some other party — meaning their full position
+    (what they receive and what they must do to receive it) is a better deal than yours —
+    the claim is not envy-free and should be revised so that no rational party would prefer
+    another's complete position.
 
-        Outputs:
-        - revised_claim: Modified claim if unsatisfied; unchanged claim if satisfied.
-        - adjustment_note: Brief rationale for the change or acceptance.
+    When revising, aim for an allocation that any party could accept from any position, not
+    one that merely improves your share in isolation.
+
+    Inputs:
+    - role: Role perspective evaluating the claim.
+    - current_claim: Claim text currently on the table.
+    - last_accepted_claim: Structural baseline from before the latest rewrite.
+    - spectator_pov: Neutral reframing from the impartial spectator, if any.
+
+    Output:
+    - revised_claim: If envy-free, return the claim unchanged. If not, return a revised claim
+      that no party would prefer to exchange out of.
+    - adjustment_note: State which parties you would or would not exchange positions with, and
+      why. If you revised the claim, state what principle of fairness guided the revision.
     """
 
     role: str = dspy.InputField()
@@ -286,6 +294,11 @@ class NegotiationSwarm:
             # Parse satisfaction status
             claim_changed = revised_claim != latest_claim
 
+            logger.debug(
+                "[ROLE:%s] changed=%s | note: %s | revised: %s",
+                role, claim_changed, adjustment_note, revised_claim[:200],
+            )
+
             # Append to full history (spectator-only feed).
             new_notes = adjustment_notes
             if new_notes:
@@ -387,7 +400,14 @@ class NegotiationSwarm:
                 **parsed_report,
             }
             spectator_reports.append(spectator_report_entry)
-            
+
+            logger.debug(
+                "[SPECTATOR] loop=%s | gridlock=%s | pov: %s",
+                parsed_report["LOOP_STATUS"],
+                parsed_report["GRIDLOCK_SUMMARY"],
+                parsed_report["PROPOSED_POV"][:200],
+            )
+
             logger.info("Spectator analysis complete")
             
             # Append spectator suggestions to adjustment notes
