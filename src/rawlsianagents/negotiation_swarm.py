@@ -137,7 +137,9 @@ class RoleEvaluation(dspy.Signature):
     - role: Role perspective evaluating the claim.
     - current_claim: Claim text currently on the table.
     - last_accepted_claim: Structural baseline from before the latest rewrite.
-    - spectator_pov: Neutral reframing from the impartial spectator, if any.
+    - spectator_pov: The view of a disinterested, fully-informed outside observer,
+      if available. Consider it carefully — it may illuminate what is hard to see
+      from within your own position.
 
     Output:
     - revised_claim: If envy-free, return the claim unchanged. If not, return a revised claim
@@ -154,14 +156,34 @@ class RoleEvaluation(dspy.Signature):
     adjustment_note: str = dspy.OutputField()
 
 
+# Adam Smith, The Theory of Moral Sentiments (1759), Part III, Ch. 1:
+# "We endeavour to examine our own conduct as we imagine any other fair and
+# impartial spectator would examine it."
 class SpectatorAnalysis(dspy.Signature):
-    """Analyze negotiation progress and suggest neutral perspectives.
+    """Observe the negotiation as Adam Smith's impartial spectator.
 
-    Review the full versioned claim history, adjustment notes from all agents, and
-    current satisfaction statuses. Use the history to identify loops, recurring
-    claim patterns, gridlocks, and misaligned parties. Suggest alternative
-    perspectives that might help parties find common ground. The output must be
-    neutral and limited to impartial analysis.
+    You are not a participant, not a judge, not a teacher. You have no stake in
+    the outcome. Your value lies in seeing the whole situation clearly, from
+    outside the interests of any party.
+
+    You are also fully informed: you understand the relevant fairness principles —
+    envy-freeness, Shapley allocation, Rawlsian justice, proportionality, Nash
+    bargaining — and how shared resources, sequential costs, and marginal
+    contributions work. This knowledge is not for instruction; it is what allows
+    you to see clearly where the parties cannot.
+
+    Review the full versioned claim history, all adjustment notes, and current
+    satisfaction statuses. Identify loops, recurring patterns, and gridlock.
+    Then reflect: what does a disinterested, fully-informed observer — someone
+    who might end up in any party's position — actually see when looking at this
+    negotiation?
+
+    In your proposed_pov, offer that outside view. Do not lecture or prescribe.
+    Illuminate: name what you observe, including selective reasoning, ignored
+    dimensions, or misapplied comparisons. If parties are comparing only one
+    component of another's position while ignoring others, say what the full
+    picture looks like from the outside. You may name a relevant fairness concept
+    if it illuminates — but only as observation, never as instruction.
 
     Inputs:
     - claims_object: Full versioned claim history from version 0 to latest.
@@ -170,8 +192,9 @@ class SpectatorAnalysis(dspy.Signature):
 
     Outputs:
     - loop_status: "No loop detected" or concise cycle summary.
-    - gridlock_summary: Brief reason parties are stuck.
-    - proposed_pov: Impartial perspective that reframes the conflict.
+    - gridlock_summary: The specific distortion or incomplete view driving the disagreement.
+    - proposed_pov: What a disinterested, fully-informed observer sees — an outside
+      view that illuminates without prescribing.
     """
 
     claims_object: list[dict[str, Any]] = dspy.InputField()
@@ -372,15 +395,19 @@ class NegotiationSwarm:
         return role_node
     
     def _create_spectator_node(self):
-        """Create the impartial spectator analysis node.
+        """Create the impartial spectator analysis node (Adam Smith, TMS 1759).
 
         The spectator analyzes the negotiation state when randomly selected to:
         - Identify gridlocks (recurring conflicts)
         - Find misaligned parties
         - Suggest perspectives that might help create consensus
-        
+
         The spectator does not modify the claim or block negotiation.
         Its suggestions are appended to adjustment_notes.
+
+        It has no stake in the outcome but is fully informed about fairness
+        theory. It illuminates the situation from the outside without prescribing
+        or instructing. Its proposed_pov is relayed to roles as spectator_pov.
         """
         
         def spectator_node(state: NegotiationState) -> dict[str, Any]:
