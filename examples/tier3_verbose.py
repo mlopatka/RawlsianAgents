@@ -19,7 +19,7 @@ from rawlsianagents import NegotiationSwarm
 from rawlsianagents.utils import compute_claim_semantic_distance
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
@@ -72,8 +72,7 @@ async def main() -> None:
             f"claim_versions={run['claim_versions']} | "
             f"semantic_distance={run['semantic_distance']:.4f}"
         )
-        print(f"  FINAL: {run['final_claim']}")
-        print(f"  NOTES:\n{run['adjustment_notes']}")
+        print(f"  FINAL: {run['final_claim'][:200]}")
 
     payload = {
         "generated_at": datetime.now(UTC).isoformat(),
