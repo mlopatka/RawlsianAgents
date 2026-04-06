@@ -105,13 +105,30 @@ class RoleEvaluation(dspy.Signature):
     "Would I prefer to exchange my complete position — everything I will receive and
     everything I must do to receive it — with theirs?"
 
-    If you would NOT prefer to exchange with any other party, the claim is envy-free and
-    should be returned unchanged, even if individual terms look asymmetric in isolation.
+    WHAT "COMPLETE POSITION" MEANS: A party's complete position includes ALL dimensions
+    of their situation taken together: the benefits they receive (service, goods, rights,
+    duration, quality), the obligations they bear (payments, duties, constraints, risks),
+    and the level or scope of what is granted to them. You cannot prefer only ONE component
+    of another party's position. When another party's payment is lower, you MUST ask whether
+    they also receive LESS — a shorter service, fewer rights, a smaller scope of benefit.
+    A lower payment that reflects a genuinely lower receipt of value is NOT an advantage;
+    it simply describes a position with fewer benefits matched by fewer burdens. Preferring
+    another party's payment while ignoring that they receive correspondingly less service
+    or fewer rights is NOT envy of their complete position — it is a selective comparison
+    that ignores half the bundle.
+
+    DECISIVE RULE: If, after examining every dimension of every party's complete position,
+    you would not freely exchange your entire situation for theirs, the claim is envy-free.
+    An envy-free finding is the sole and sufficient reason to leave the claim unchanged.
+    Return it exactly as written. Do NOT revise based on proportionality, symmetry, equal
+    shares, or any other criterion once envy-freeness is confirmed. Asymmetric payments or
+    unequal-looking terms do not justify revision when they reflect genuinely different
+    levels of benefit received.
 
     If you WOULD prefer to exchange with some other party — meaning their full position
-    (what they receive and what they must do to receive it) is a better deal than yours —
-    the claim is not envy-free and should be revised so that no rational party would prefer
-    another's complete position.
+    (ALL that they receive AND ALL that they must do to receive it) is genuinely preferable
+    to your own in every relevant respect — the claim is not envy-free and should be
+    revised so that no rational party would prefer another's complete position.
 
     When revising, aim for an allocation that any party could accept from any position, not
     one that merely improves your share in isolation.
@@ -479,9 +496,13 @@ class NegotiationSwarm:
         """Select the next actor randomly, excluding the actor that just acted."""
 
         last_actor = state.get("last_actor")
+        iteration_count = state.get("iteration_count", 0)
         candidates = [
             r for r in self.roles + ["spectator"] if r != last_actor
         ]
+        # The spectator has nothing to analyse before any role has acted.
+        if iteration_count == 0:
+            candidates = [r for r in candidates if r != "spectator"]
         actor = random.choice(candidates)
         if actor == "spectator":
             return "spectator"
