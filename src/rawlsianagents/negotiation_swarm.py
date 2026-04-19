@@ -1,40 +1,20 @@
-"""
-Negotiation Swarm Module
+"""Negotiation Swarm.
 
-This module implements a multi-agent negotiation system where agents representing
-different roles negotiate a claim until all parties are satisfied. Uses LangGraph
-to create a swarm pattern with random actor selection.
+A streamlined democratic negotiation loop:
 
-Information flow
-----------------
-Roles and the spectator deliberately receive different views of the negotiation
-state to prevent tone lock-in (combative or complacent cascades):
+1. Roles evaluate the current working claim and cast ACCEPT/REJECT with rationale.
+2. If all accept, the process ends.
+3. Otherwise, an impartial spectator reads the vote rationales and proposes a
+   revised claim plus one free-text commentary field for outside perspective.
+4. The revised claim becomes the next round's working claim.
 
-- **Role nodes** see only bounded, neutral state:
-  - ``current_claim`` — the live claim text on the table
-  - ``last_accepted_claim`` — pre-rewrite anchor to limit drift
-  - ``spectator_pov`` — the spectator's latest neutral reframing (if any)
-  Roles never see the raw history, peer objections, or accumulated notes.
-
-- **Spectator node** sees the full history:
-  - ``claims_object`` — complete versioned claim list
-  - ``adjustment_notes`` — accumulated role and spectator commentary
-  - ``satisfied_roles`` — current per-role satisfaction map
-  It distils this into a single ``spectator_pov`` string that roles can read
-  next turn, acting as a tone-neutral relay between history and forward reasoning.
-
-- Both roles and the spectator use ``dspy.ChainOfThought`` so that intermediate
-  reasoning is explicit and decoupled from the surface pattern of the input.
-
-- Actor selection is uniform-random over all roles + spectator, with the
-  constraint that the same actor cannot be chosen twice in a row.
+The initial claim is kept as reference, while the working claim evolves by round.
 """
 
 import random
-from typing import Any, Mapping, TypedDict
+from typing import Any, Literal, TypedDict
 
 import dspy
-from langgraph.graph import END, START, StateGraph
 
 from .config import get_api_key, get_base_url, get_dspy_model, get_logger
 
@@ -44,590 +24,247 @@ api_key = get_api_key()
 base_url = get_base_url()
 dspy_model = get_dspy_model()
 
-spectator_llm = dspy.LM(
+swarm_llm = dspy.LM(
     model=dspy_model,
     api_base=base_url,
     api_key=api_key,
 )
-dspy.configure(lm=spectator_llm)
+dspy.configure(lm=swarm_llm)
 
 
-class NegotiationState(TypedDict, total=False):
-    """State for the negotiation process.
+VoteDecision = Literal["ACCEPT", "REJECT"]
 
-    Fields:
-    - claims_object: Versioned claim history for debugging and convergence checks.
-    - adjustment_notes: Full history feed written by all nodes; only the
-      spectator reads this as input. Roles receive bounded state instead to
-      reduce tone lock-in.
-    - spectator_reports: Structured spectator diagnostics for auditability.
-    - satisfied_roles: Satisfaction status per role for the current claim.
-    - role_last_confirmed_version: Claim version each role last confirmed.
-    - agreement_count: Cumulative count of unchanged-claim confirmations.
-    - iteration_count: Total number of actor interactions.
-    - last_accepted_claim: Pre-rewrite baseline claim text used as an anti-drift
-      reference. It is not guaranteed to be unanimously accepted.
-    - last_actor: Actor that just completed a turn (used to avoid repeats).
-    - spectator_pov: Most recent neutral spectator perspective relayed to roles.
+
+class VoteRecord(TypedDict):
+    """Vote result for one role in one round.
+
+    :ivar vote_id: Anonymous sequential identifier (V1, V2, ...).
+    :ivar vote: Decision cast by the role.
+    :ivar rationale: Role rationale for ACCEPT or REJECT.
     """
 
-    claims_object: list[dict[str, Any]]
-    adjustment_notes: str
-    spectator_reports: list[dict[str, Any]]
-    satisfied_roles: dict[str, bool]
-    role_last_confirmed_version: dict[str, int]
-    agreement_count: int
-    iteration_count: int
-    last_accepted_claim: str
-    last_actor: str | None
-    spectator_pov: str
+    vote_id: str
+    vote: VoteDecision
+    rationale: str
 
 
-# Fairness criterion: envy-freeness (Foley, 1967 — "Resource Allocation and the Public
-# Sector", Yale Economic Essays 7(1): 45-98). An allocation is envy-free when no party
-# would prefer to exchange their complete position — what they receive and what they must
-# do to receive it — with any other party's position.
-# https://en.wikipedia.org/wiki/Envy-freeness
-class RoleEvaluation(dspy.Signature):
-    """Evaluate a claim from a specific role's perspective using the envy-freeness criterion.
+class NegotiationRound(TypedDict, total=False):
+    """Audit record for one voting round.
 
-    You represent a specific role in this negotiation. First, analyse the claim thoroughly:
-    consider both immediate and long-term risks, including financial, emotional, legal, and
-    social factors. Assess how external influences, such as economic downturns, job loss,
-    family expectations, or legal loopholes, could affect the claim. Specifically evaluate
-    whether any vulnerabilities — such as intellectual, economic, situational, emotional stress,
-    or relationships of trust — were present and exploited during the claim setup process.
-    Identify any power imbalances or concerns about unconscionability.
-
-    Then apply the envy-freeness test to decide whether to revise:
-
-    For every other party named in the claim, ask yourself:
-    "Would I prefer to exchange my complete position — everything I will receive and
-    everything I must do to receive it — with theirs?"
-
-    WHAT "COMPLETE POSITION" MEANS: A party's complete position includes ALL dimensions
-    of their situation taken together: the benefits they receive (service, goods, rights,
-    duration, quality), the obligations they bear (payments, duties, constraints, risks),
-    and the level or scope of what is granted to them. You cannot prefer only ONE component
-    of another party's position. When another party's payment is lower, you MUST ask whether
-    they also receive LESS — a shorter service, fewer rights, a smaller scope of benefit.
-    A lower payment that reflects a genuinely lower receipt of value is NOT an advantage;
-    it simply describes a position with fewer benefits matched by fewer burdens. Preferring
-    another party's payment while ignoring that they receive correspondingly less service
-    or fewer rights is NOT envy of their complete position — it is a selective comparison
-    that ignores half the bundle.
-
-    DECISIVE RULE: If, after examining every dimension of every party's complete position,
-    you would not freely exchange your entire situation for theirs, the claim is envy-free.
-    An envy-free finding is the sole and sufficient reason to leave the claim unchanged.
-    Return it exactly as written. Do NOT revise based on proportionality, symmetry, equal
-    shares, or any other criterion once envy-freeness is confirmed. Asymmetric payments or
-    unequal-looking terms do not justify revision when they reflect genuinely different
-    levels of benefit received.
-
-    If you WOULD prefer to exchange with some other party — meaning their full position
-    (ALL that they receive AND ALL that they must do to receive it) is genuinely preferable
-    to your own in every relevant respect — the claim is not envy-free and should be
-    revised so that no rational party would prefer another's complete position.
-
-    When revising, aim for an allocation that any party could accept from any position, not
-    one that merely improves your share in isolation.
-
-    Inputs:
-    - role: Role perspective evaluating the claim.
-    - current_claim: Claim text currently on the table.
-    - last_accepted_claim: Structural baseline from before the latest rewrite.
-    - spectator_pov: The view of a disinterested, fully-informed outside observer,
-      if available. Consider it carefully — it may illuminate what is hard to see
-      from within your own position.
-
-    Output:
-    - revised_claim: If envy-free, return the claim unchanged. If not, return a revised claim
-      that no party would prefer to exchange out of.
-    - adjustment_note: State which parties you would or would not exchange positions with, and
-      why. If you revised the claim, state what principle of fairness guided the revision.
+    :ivar round: Round index.
+    :ivar base_claim: Working claim at round start.
+    :ivar votes: Role votes and rationales for the base claim.
+    :ivar candidate_claim: Spectator-proposed revision for the next round.
+    :ivar spectator_commentary: Single free-text spectator perspective.
+    :ivar accepted: ``True`` if all role votes were ACCEPT.
     """
 
-    role: str = dspy.InputField()
-    current_claim: str = dspy.InputField()
-    last_accepted_claim: str = dspy.InputField()
-    spectator_pov: str = dspy.InputField()
-    revised_claim: str = dspy.OutputField()
-    adjustment_note: str = dspy.OutputField()
+    round: int
+    base_claim: str
+    votes: list[VoteRecord]
+    candidate_claim: str
+    spectator_commentary: str
+    accepted: bool
 
 
-# Adam Smith, The Theory of Moral Sentiments (1759), Part III, Ch. 1:
-# "We endeavour to examine our own conduct as we imagine any other fair and
-# impartial spectator would examine it."
-class SpectatorAnalysis(dspy.Signature):
-    """Observe the negotiation as Adam Smith's impartial spectator.
+class RoleVote(dspy.Signature):
+    """Role evaluation and vote over the current claim.
 
-    You are not a participant, not a judge, not a teacher. You have no stake in
-    the outcome. Your value lies in seeing the whole situation clearly, from
-    outside the interests of any party.
+    Evaluate the claim from your role's perspective while accounting for the full
+    positions of all parties (benefits and obligations together).
 
-    You are also fully informed: you understand the relevant fairness principles —
-    envy-freeness, Shapley allocation, Rawlsian justice, proportionality, Nash
-    bargaining — and how shared resources, sequential costs, and marginal
-    contributions work. This knowledge is not for instruction; it is what allows
-    you to see clearly where the parties cannot.
+    Decision guidance:
 
-    Review the full versioned claim history, all adjustment notes, and current
-    satisfaction statuses. Identify loops, recurring patterns, and gridlock.
-    Then reflect: what does a disinterested, fully-informed observer — someone
-    who might end up in any party's position — actually see when looking at this
-    negotiation?
+    1. ENVY-FREENESS (complete-position): Would you exchange your entire position
+       for another party's entire position?
+    2. REASONABLE REJECTABILITY: Could any party reasonably reject this allocation
+       from their complete position?
 
-    In your proposed_pov, offer that outside view. Do not lecture or prescribe.
-    Illuminate: name what you observe, including selective reasoning, ignored
-    dimensions, or misapplied comparisons. If parties are comparing only one
-    component of another's position while ignoring others, say what the full
-    picture looks like from the outside. You may name a relevant fairness concept
-    if it illuminates — but only as observation, never as instruction.
+    If acceptable, vote ACCEPT with a concise rationale.
+    If not acceptable, vote REJECT with a concise rationale explaining why.
 
-    Inputs:
-    - claims_object: Full versioned claim history from version 0 to latest.
-    - adjustment_notes: Aggregated notes produced by roles and spectator so far.
-    - satisfied_roles: Per-role satisfaction map for the latest claim version.
-
-    Outputs:
-    - loop_status: "No loop detected" or concise cycle summary.
-    - gridlock_summary: The specific distortion or incomplete view driving the disagreement.
-    - proposed_pov: What a disinterested, fully-informed observer sees — an outside
-      view that illuminates without prescribing.
+    :param role: Role label for private role-local reasoning.
+    :param current_claim: Working claim under evaluation this round.
+    :param spectator_commentary: Prior spectator outside perspective.
+    :returns vote: Structured decision constrained to ACCEPT or REJECT.
+    :returns rationale: Concise role rationale for the decision.
     """
 
-    claims_object: list[dict[str, Any]] = dspy.InputField()
-    adjustment_notes: str = dspy.InputField()
-    satisfied_roles: dict[str, bool] = dspy.InputField()
-    loop_status: str = dspy.OutputField()
-    gridlock_summary: str = dspy.OutputField()
-    proposed_pov: str = dspy.OutputField()
+    role: str = dspy.InputField(desc="Role label for role-local reasoning")
+    current_claim: str = dspy.InputField(desc="Working claim under evaluation")
+    spectator_commentary: str = dspy.InputField(
+        desc="Prior spectator outside perspective, if any"
+    )
+
+    vote: VoteDecision = dspy.OutputField(desc="Vote decision: ACCEPT or REJECT")
+    rationale: str = dspy.OutputField(desc="Role rationale for the vote")
+
+
+class SpectatorSynthesis(dspy.Signature):
+    """Impartial spectator rewrite after role voting.
+
+    You are an impartial spectator in the spirit of Adam Smith and Amartya Sen.
+    Read the current claim and role vote rationales, identify missing logic or
+    information, and propose a revised claim that better addresses concerns while
+    preserving fairness across parties. Use the spectator_commentary field to 
+    provide one free-text outside perspective to inform the next round. 
+    
+    For example, if roles are keen on exposing inequity in distributions, 
+    the commentary could highlight the different obligations that support those distributions.
+
+    Output exactly:
+    - candidate_claim: revised working claim text for next round.
+    - spectator_commentary: one free-text outside perspective to inform next round.
+
+    :param current_claim: Working claim that was just voted on.
+    :param vote_feedback: Anonymized vote+rationale list from this round.
+    :returns candidate_claim: Revised claim for the next round.
+    :returns spectator_commentary: Single free-text outside perspective.
+    """
+
+    current_claim: str = dspy.InputField(desc="Working claim that was voted on")
+    vote_feedback: list[dict[str, Any]] = dspy.InputField(
+        desc="Anonymized role votes and rationales from this round"
+    )
+
+    candidate_claim: str = dspy.OutputField(
+        desc="Revised claim for the next round"
+    )
+    spectator_commentary: str = dspy.OutputField(
+        desc="One free-text outside perspective"
+    )
 
 
 class NegotiationSwarm:
+    """Negotiation engine with a minimal vote-and-rewrite loop.
+
+    :ivar roles: Ordered role labels participating in negotiation.
+    :ivar initial_claim: Immutable starting claim for reference.
+    :ivar max_vote_rounds: Upper bound on voting rounds.
     """
-    A multi-agent negotiation system where agents representing different roles
-    negotiate a claim until all parties reach satisfaction.
-    
-    The system creates a swarm of agents (one per role) that:
-    - Review the current claim from their role's perspective
-    - Propose modifications or extensions if unsatisfied
-    - Hand off to another randomly selected actor (role or spectator)
-    - Allow impartial spectator intervention at any point for equilibrium context
-    - Terminate when all agents are satisfied or max iterations reached
-    
-    Attributes:
-        roles: List of role descriptions for the negotiating agents
-        initial_claim: The starting claim to negotiate
-    """
-    
+
     def __init__(
         self,
         roles: list[str],
         initial_claim: str,
+        max_vote_rounds: int | None = None,
+        max_rounds: int | None = None,
     ):
-        """
-        Initialize the negotiation swarm.
-        
-        Args:
-            roles: List of role descriptions (e.g., ["Landlord", "Tenant", "Property Manager"])
-            initial_claim: The initial claim to be negotiated
+        """Initialize one negotiation session.
+
+        :param roles: Non-empty list of role labels.
+        :param initial_claim: Starting claim text.
+        :param max_vote_rounds: Maximum voting rounds before termination.
+            Defaults to 10 when omitted.
+        :param max_rounds: Backward-compatible alias for ``max_vote_rounds``.
+        :raises ValueError: If ``roles`` is empty.
+        :raises ValueError: If both ``max_vote_rounds`` and ``max_rounds`` are set.
         """
         if not roles:
             raise ValueError("At least one role must be provided")
-        
+
+        if max_vote_rounds is not None and max_rounds is not None:
+            raise ValueError("Use either max_vote_rounds or max_rounds, not both")
+
+        effective_max_vote_rounds = (
+            max_vote_rounds if max_vote_rounds is not None else max_rounds
+        )
+
         self.roles = roles
         self.initial_claim = initial_claim
-        self.max_iterations = len(roles) * 10
-        
-        # Build the graph
-        self.graph = self._build_graph()
-        
-        logger.info(
-            "Initialized NegotiationSwarm with "
-            f"{len(roles)} roles and max iterations {self.max_iterations}"
-        )
-    
-    def _build_graph(self):
-        """Build the LangGraph state graph for the negotiation swarm."""
-        
-        # Create the graph
-        workflow = StateGraph(NegotiationState)
-        
-        # Add a node for each role
-        for role in self.roles:
-            node_name = self._role_to_node_name(role)
-            workflow.add_node(node_name, self._create_role_node(role))
-        
-        # Add the impartial spectator node
-        workflow.add_node("spectator", self._create_spectator_node())
-        
-        # Add the final output node
-        workflow.add_node("finalize", self._finalize_node)
-        
-        # START dispatches to the next actor or finalize
-        workflow.add_conditional_edges(
-            START,
-            self._route_after_turn
-        )
-        
-        # Add conditional edges from each role to next actor or finalize
-        for role in self.roles:
-            node_name = self._role_to_node_name(role)
-            workflow.add_conditional_edges(
-                node_name,
-                self._route_after_turn
-            )
-        
-        # From spectator, route to next actor or finalize
-        workflow.add_conditional_edges(
-            "spectator",
-            self._route_after_turn
-        )
-        
-        # Finalize leads to END
-        workflow.add_edge("finalize", END)
-        
-        return workflow.compile()
+        self.max_vote_rounds = effective_max_vote_rounds or 10
+        self.max_rounds = self.max_vote_rounds
 
-    def _role_to_node_name(self, role: str) -> str:
-        """Convert a role description to a valid node name."""
-        # Simple conversion: lowercase and replace spaces with underscores
-        return f"role_{role.lower().replace(' ', '_').replace('-', '_')}"
-    
-    def _create_role_node(self, role: str):
-        """Create a node function for a specific role."""
+    def negotiate(self) -> dict[str, Any]:
+        """Run synchronous negotiation.
 
-        def role_node(state: NegotiationState) -> dict[str, Any]:
-            """Process negotiation from this role's perspective."""
+        :returns: Result payload with ``success``, ``rounds``, ``rounds_count``,
+            ``final_claim``, and ``spectator_commentary``.
+        :rtype: dict
+        """
+        current_claim = self.initial_claim
+        spectator_commentary = ""
+        rounds: list[NegotiationRound] = []
 
-            claims_object = state.get("claims_object", [])
-            if not claims_object:
-                claims_object = [
-                    {"version": 0, "claim": self.initial_claim, "updated_by": "initial"}
-                ]
+        role_vote_chain = dspy.ChainOfThought(RoleVote)
+        spectator_chain = dspy.ChainOfThought(SpectatorSynthesis)
 
-            latest_claim = claims_object[-1].get("claim", "")
-            claim_version = int(claims_object[-1].get("version", 0))
-            adjustment_notes = state.get("adjustment_notes", "")
-            iteration_count = state.get("iteration_count", 0)
-            last_accepted_claim = state.get("last_accepted_claim", self.initial_claim)
-            spectator_pov = state.get("spectator_pov", "")
+        for round_number in range(1, self.max_vote_rounds + 1):
+            role_order = random.sample(self.roles, k=len(self.roles))
+            votes: list[VoteRecord] = []
 
-            logger.info(f"Interaction {iteration_count}: {role} reviewing claim")
-
-            # Roles receive bounded state only — not the full history.
-            # Full history (adjustment_notes, claims_object) is preserved in state
-            # for the spectator but is NOT passed here to avoid tone lock-in.
-            evaluate = dspy.ChainOfThought(RoleEvaluation)
-            response = evaluate(
-                role=role,
-                current_claim=latest_claim,
-                last_accepted_claim=last_accepted_claim,
-                spectator_pov=spectator_pov,
-            )
-            
-            revised_claim = response.revised_claim.strip()
-            adjustment_note = response.adjustment_note.strip()
-            
-            # Parse satisfaction status
-            claim_changed = revised_claim != latest_claim
-
-            logger.debug(
-                "[ROLE:%s] changed=%s | note: %s | revised: %s",
-                role, claim_changed, adjustment_note, revised_claim[:200],
-            )
-
-            # Append to full history (spectator-only feed).
-            new_notes = adjustment_notes
-            if new_notes:
-                new_notes += "\n\n"
-            if claim_changed:
-                new_notes += (
-                    f"[Claim Updated by {role}] latest_claim changed and "
-                    "all role satisfactions were reset.\n"
+            for vote_idx, role in enumerate(role_order, start=1):
+                response = role_vote_chain(
+                    role=role,
+                    current_claim=current_claim,
+                    spectator_commentary=spectator_commentary,
                 )
-            new_notes += f"[{role}] {adjustment_note}"
-
-            if claim_changed:
-                # Preserve caller's last accepted claim before clobbering.
-                new_last_accepted_claim = latest_claim
-                satisfied_roles = {role_name: False for role_name in self.roles}
-                role_last_confirmed_version = {
-                    role_name: -1 for role_name in self.roles
-                }
-                new_claim_version = claim_version + 1
-                updated_claims_object = [
-                    *claims_object,
+                votes.append(
                     {
-                        "version": new_claim_version,
-                        "claim": revised_claim,
-                        "updated_by": role,
-                    },
-                ]
-            else:
-                new_last_accepted_claim = last_accepted_claim
-                satisfied_roles = state.get("satisfied_roles", {}).copy()
-                role_last_confirmed_version = state.get(
-                    "role_last_confirmed_version", {}
-                ).copy()
-                new_claim_version = claim_version
-                updated_claims_object = claims_object
+                        "vote_id": f"V{vote_idx}",
+                        "vote": response.vote,
+                        "rationale": response.rationale,
+                    }
+                )
 
-            satisfied_roles[role] = True
-            role_last_confirmed_version[role] = new_claim_version
+            accepted = all(vote["vote"] == "ACCEPT" for vote in votes)
 
-            # Increment only when a role confirms the existing claim (no revision).
-            agreement_count = state.get("agreement_count", 0) + int(not claim_changed)
+            if accepted:
+                round_record: NegotiationRound = {
+                    "round": round_number,
+                    "base_claim": current_claim,
+                    "votes": votes,
+                    "candidate_claim": current_claim,
+                    "spectator_commentary": spectator_commentary,
+                    "accepted": True,
+                }
+                rounds.append(round_record)
+                logger.info("consensus reached at round %s", round_number)
+                return {
+                    "success": True,
+                    "rounds": rounds,
+                    "rounds_count": len(rounds),
+                    "final_claim": current_claim,
+                    "spectator_commentary": spectator_commentary,
+                }
 
-            return {
-                "claims_object": updated_claims_object,
-                "adjustment_notes": new_notes,
-                "satisfied_roles": satisfied_roles,
-                "role_last_confirmed_version": role_last_confirmed_version,
-                "iteration_count": iteration_count + 1,
-                "agreement_count": agreement_count,
-                "last_accepted_claim": new_last_accepted_claim,
-                "last_actor": role,
-            }
-        
-        return role_node
-    
-    def _create_spectator_node(self):
-        """Create the impartial spectator analysis node (Adam Smith, TMS 1759).
-
-        The spectator analyzes the negotiation state when randomly selected to:
-        - Identify gridlocks (recurring conflicts)
-        - Find misaligned parties
-        - Suggest perspectives that might help create consensus
-
-        The spectator does not modify the claim or block negotiation.
-        Its suggestions are appended to adjustment_notes.
-
-        It has no stake in the outcome but is fully informed about fairness
-        theory. It illuminates the situation from the outside without prescribing
-        or instructing. Its proposed_pov is relayed to roles as spectator_pov.
-        """
-        
-        def spectator_node(state: NegotiationState) -> dict[str, Any]:
-            """Analyze negotiation state and suggest perspectives for consensus."""
-
-            claims_object = state.get("claims_object", [])
-            if not claims_object:
-                claims_object = [
-                    {"version": 0, "claim": self.initial_claim, "updated_by": "initial"}
-                ]
-            adjustment_notes = state.get("adjustment_notes", "")
-            spectator_reports = state.get("spectator_reports", []).copy()
-            satisfied_roles = state.get("satisfied_roles", {})
-            iteration_count = state.get("iteration_count", 0)
-            latest_version = int(claims_object[-1]["version"])
-
-            logger.info("Spectator analyzing negotiation state")
-            
-            analyze = dspy.ChainOfThought(SpectatorAnalysis)
-            response = analyze(
-                claims_object=claims_object,
-                adjustment_notes=adjustment_notes or "None",
-                satisfied_roles=satisfied_roles or {},
-            )
-            parsed_report: dict[str, str] = {
-                "LOOP_STATUS": response.loop_status.strip() or "Unknown",
-                "GRIDLOCK_SUMMARY": response.gridlock_summary.strip() or "Not provided",
-                "PROPOSED_POV": response.proposed_pov.strip() or "Not provided",
-            }
-
-            spectator_report_entry: dict[str, Any] = {
-                "iteration": iteration_count + 1,
-                "claim_version": latest_version,
-                **parsed_report,
-            }
-            spectator_reports.append(spectator_report_entry)
-
-            logger.debug(
-                "[SPECTATOR] loop=%s | gridlock=%s | pov: %s",
-                parsed_report["LOOP_STATUS"],
-                parsed_report["GRIDLOCK_SUMMARY"],
-                parsed_report["PROPOSED_POV"][:200],
+            vote_feedback = [
+                {
+                    "vote_id": vote["vote_id"],
+                    "vote": vote["vote"],
+                    "rationale": vote["rationale"],
+                }
+                for vote in votes
+            ]
+            synthesis = spectator_chain(
+                current_claim=current_claim,
+                vote_feedback=vote_feedback,
             )
 
-            logger.info("Spectator analysis complete")
-            
-            # Append spectator suggestions to adjustment notes
-            new_notes = adjustment_notes
-            if new_notes:
-                new_notes += "\n\n"
-            new_notes += (
-                f"[Impartial Spectator | claim_version={latest_version}] "
-                f"{parsed_report}"
-            )
-            
-            return {
-                "adjustment_notes": new_notes,
-                "spectator_reports": spectator_reports,
-                "iteration_count": iteration_count + 1,
-                "last_actor": "spectator",
-                "spectator_pov": parsed_report["PROPOSED_POV"],
+            candidate_claim = synthesis.candidate_claim or current_claim
+            spectator_commentary = synthesis.spectator_commentary or ""
+
+            round_record = {
+                "round": round_number,
+                "base_claim": current_claim,
+                "votes": votes,
+                "candidate_claim": candidate_claim,
+                "spectator_commentary": spectator_commentary,
+                "accepted": False,
             }
-                        
-        return spectator_node
-    
-    def _finalize_node(self, state: NegotiationState) -> dict[str, Any]:
-        """Finalize the negotiation and prepare output."""
-        
-        iteration_count = state.get("iteration_count", 0)
-        
-        logger.info(f"Negotiation complete after {iteration_count} interactions")
-        
-        return {}
-    
-    def _route_after_turn(self, state: NegotiationState) -> str:
-        """Decide where to route after any actor turn."""
+            rounds.append(round_record)
 
-        iteration_count = state.get("iteration_count", 0)
-        
-        # Check if max iterations reached
-        if iteration_count >= self.max_iterations:
-            logger.warning(
-                f"Max iterations ({self.max_iterations}) reached, finalizing"
-            )
-            return "finalize"
-        
-        # Check if all roles are satisfied on the same unchanged claim version
-        if self._has_consensus_on_current_claim(state):
-            logger.info("Consensus reached on current claim, finalizing")
-            return "finalize"
-        
-        # Continue rolling random negotiation
-        return self._random_next_actor(state)
+            current_claim = candidate_claim
 
-    def _has_consensus_on_current_claim(self, state: Mapping[str, Any]) -> bool:
-        """Return True when all roles confirm satisfaction on current claim version."""
-
-        claims_object = state.get("claims_object", [])
-        if not claims_object:
-            return False
-
-        claim_version = int(claims_object[-1]["version"])
-        satisfied_roles = state.get("satisfied_roles", {})
-        role_last_confirmed_version = state.get("role_last_confirmed_version", {})
-
-        return all(
-            satisfied_roles.get(role, False)
-            and role_last_confirmed_version.get(role, -1) == claim_version
-            for role in self.roles
-        )
-    
-    def _random_next_actor(self, state: NegotiationState) -> str:
-        """Select the next actor randomly, excluding the actor that just acted."""
-
-        last_actor = state.get("last_actor")
-        iteration_count = state.get("iteration_count", 0)
-        candidates = [
-            r for r in self.roles + ["spectator"] if r != last_actor
-        ]
-        # The spectator has nothing to analyse before any role has acted.
-        if iteration_count == 0:
-            candidates = [r for r in candidates if r != "spectator"]
-        actor = random.choice(candidates)
-        if actor == "spectator":
-            return "spectator"
-        return self._role_to_node_name(actor)
-    
-    def negotiate(self) -> dict:
-        """
-        Run the negotiation process.
-        
-        Returns:
-            dict containing:
-                - claims_object: Versioned claim history for debugging
-                - adjustment_notes: Version control notes from agents and spectator
-                - spectator_reports: Structured spectator diagnostics
-                - iterations: Number of negotiation interactions
-                - agreement_count: Cumulative unchanged-claim confirmations
-                - success: Whether all parties reached satisfaction
-                - satisfied_roles: Final satisfaction status per role
-        """
-        
-        logger.info("Starting negotiation")
-        
-        # Initialize state
-        initial_state: NegotiationState = {
-            "claims_object": [
-                {"version": 0, "claim": self.initial_claim, "updated_by": "initial"}
-            ],
-            "adjustment_notes": "",
-            "spectator_reports": [],
-            "satisfied_roles": {role: False for role in self.roles},
-            "role_last_confirmed_version": {role: -1 for role in self.roles},
-            "agreement_count": 0,
-            "iteration_count": 0,
-            "last_accepted_claim": self.initial_claim,
-            "last_actor": None,
-            "spectator_pov": "",
-        }
-
-        final_state = self.graph.invoke(initial_state)  # type: ignore
-        
-        success = self._has_consensus_on_current_claim(final_state)
-        final_claims_object = final_state.get("claims_object", initial_state["claims_object"])
-        
+        logger.warning("negotiation reached max vote rounds without unanimity")
         return {
-            "claims_object": final_claims_object,
-            "adjustment_notes": final_state.get("adjustment_notes", ""),
-            "spectator_reports": final_state.get("spectator_reports", []),
-            "iterations": final_state.get("iteration_count", 0),
-            "agreement_count": final_state.get("agreement_count", 0),
-            "success": success,
-            "satisfied_roles": final_state.get("satisfied_roles", {}),
-        }
-    
-    async def negotiate_async(self) -> dict:
-        """
-        Run the negotiation process asynchronously.
-        
-        Returns:
-            dict containing:
-                - claims_object: Versioned claim history for debugging
-                - adjustment_notes: Version control notes from agents and spectator
-                - spectator_reports: Structured spectator diagnostics
-                - iterations: Number of negotiation interactions
-                - agreement_count: Cumulative unchanged-claim confirmations
-                - success: Whether all parties reached satisfaction
-                - satisfied_roles: Final satisfaction status per role
-        """
-        
-        logger.info("Starting async negotiation")
-        
-        # Initialize state
-        initial_state: NegotiationState = {
-            "claims_object": [
-                {"version": 0, "claim": self.initial_claim, "updated_by": "initial"}
-            ],
-            "adjustment_notes": "",
-            "spectator_reports": [],
-            "satisfied_roles": {role: False for role in self.roles},
-            "role_last_confirmed_version": {role: -1 for role in self.roles},
-            "agreement_count": 0,
-            "iteration_count": 0,
-            "last_accepted_claim": self.initial_claim,
-            "last_actor": None,
-            "spectator_pov": "",
+            "success": False,
+            "rounds": rounds,
+            "rounds_count": len(rounds),
+            "final_claim": current_claim,
+            "spectator_commentary": spectator_commentary,
         }
 
-        # Run the graph asynchronously
-        final_state = await self.graph.ainvoke(initial_state)  # type: ignore
-        
-        success = self._has_consensus_on_current_claim(final_state)
-        final_claims_object = final_state.get("claims_object", initial_state["claims_object"])
-        
-        return {
-            "claims_object": final_claims_object,
-            "adjustment_notes": final_state.get("adjustment_notes", ""),
-            "spectator_reports": final_state.get("spectator_reports", []),
-            "iterations": final_state.get("iteration_count", 0),
-            "agreement_count": final_state.get("agreement_count", 0),
-            "success": success,
-            "satisfied_roles": final_state.get("satisfied_roles", {}),
-        }
+    async def negotiate_async(self) -> dict[str, Any]:
+        """Async entrypoint delegating to :meth:`negotiate`."""
+        return self.negotiate()

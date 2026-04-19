@@ -17,6 +17,7 @@ dependencies = [
     "sentence-transformers>=3.0.0",
     "sphinx-rtd-theme>=3.1.0",
     "streamlit>=1.54.0",
+    "claude-agent-sdk>=0.1.56",
 ]
 
 [build-system]

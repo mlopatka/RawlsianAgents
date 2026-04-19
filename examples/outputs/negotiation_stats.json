@@ -1,31 +1,23 @@
 {
-  "generated_at": "2026-03-15T21:42:54.469906+00:00",
+  "generated_at": "2026-04-19T18:43:03.736555+00:00",
   "roles": [
     "LeVan family",
     "bride",
     "groom",
     "potential children"
   ],
-  "iterations": 23,
-  "agreement_count": 6,
   "success": true,
-  "claim_versions": 14,
-  "spectator_reports_count": 4,
+  "rounds_count": 2,
   "initial_claim": "The marriage contract excludes all of the husband's business interests from net family property and limits the wife's right to support.",
-  "final_claim": "The marriage contract shall include an equitable division of the husband's business interests within net family property and guarantees the wife's right to adequate and necessary support, thereby ensuring the welfare and emotional well-being of any potential children.",
+  "final_claim": "The marriage contract shall equitably distribute business interests and ensure fair support provisions for both spouses, taking into account the needs of any potential children and overall family welfare.",
   "semantic_distance": {
     "model_name": "cross-encoder/stsb-roberta-base",
-    "raw_score": 0.3276948630809784,
-    "similarity": 0.3276948630809784,
-    "distance": 0.6723051369190216
+    "raw_score": 0.3163182735443115,
+    "similarity": 0.3163182735443115,
+    "distance": 0.6836817264556885
   },
-  "satisfied_roles": {
-    "LeVan family": true,
-    "bride": true,
-    "groom": true,
-    "potential children": true
-  },
-  "satisfied_roles_count": 4,
-  "unsatisfied_roles_count": 0,
-  "satisfaction_rate": 1.0
+  "accept_votes_count": 4,
+  "reject_votes_count": 0,
+  "accept_rate": 1.0,
+  "spectator_commentary": "In family law, ensuring fairness in distribution of assets and support is crucial not only for the parents but also for the well-being of children. This must be prioritized in the revision of any marital agreements to prevent inequity and promote stability within the family unit."
 }

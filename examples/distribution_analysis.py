@@ -12,7 +12,7 @@ Tier 1 — Unfair marriage contract (LeVan case):
 
 Tier 2 — Re-negotiation of Tier-1 outputs (sanity check):
     Each already-negotiated Tier-1 output is passed through the swarm once more.
-    Expected: less semantic change and fewer iterations, confirming the swarm
+    Expected: less semantic change and fewer rounds, confirming the swarm
     does not add noise to claims it has already balanced.
 
 Tier 3 — Taxi fare split from an already-fair Shapley clause (stability check):
@@ -61,9 +61,9 @@ TAXI_UNFAIR_CLAIM = (
     "regardless of the distance each passenger travels."
 )
 TAXI_SHAPLEY_FAIR_CLAIM = (
-    "Passengers A, B, and C shall split the $30 taxi fare according to distance "
-    "traveled: Passenger A pays $3.33, Passenger B pays $8.33, and Passenger C "
-    "pays $18.34."
+    "Passengers A, B, and C traveled 10, 20, and 30 miles respectively. "
+    "They shall split the $30 taxi fare as follows: Passenger A pays $3.33, "
+    "Passenger B pays $8.33, and Passenger C pays $18.34."
 )
 
 
@@ -87,17 +87,18 @@ async def _run_batch(
 
 
 def _extract_metrics(initial_claim: str, result: dict) -> dict:
-    claims_object = result["claims_object"]
-    final_claim = claims_object[-1]["claim"]
+    final_claim = result["final_claim"]
+    rounds = result.get("rounds", [])
+    latest_round = rounds[-1] if rounds else {}
+    votes = latest_round.get("votes", [])
+    accept_votes = sum(1 for vote in votes if vote.get("vote") == "ACCEPT")
+    total_votes = len(votes)
+
     sem = compute_claim_semantic_distance(initial_claim, final_claim)
-    n_roles = len(result["satisfied_roles"])
     return {
         "semantic_distance": sem.distance,
-        "iterations": result["iterations"],
-        "claim_versions": len(claims_object),
-        "satisfaction_rate": (
-            sum(result["satisfied_roles"].values()) / n_roles if n_roles else 0.0
-        ),
+        "rounds_count": result["rounds_count"],
+        "accept_rate": accept_votes / total_votes if total_votes else 0.0,
         "success": result["success"],
         "final_claim": final_claim,
     }
@@ -112,9 +113,8 @@ def _plot_distributions(
 ) -> None:
     metrics = [
         ("semantic_distance", "Semantic Distance\n(initial → final claim)"),
-        ("iterations", "Iterations to Convergence"),
-        ("claim_versions", "Claim Versions (rewrites)"),
-        ("satisfaction_rate", "Satisfaction Rate"),
+        ("rounds_count", "Rounds to Convergence"),
+        ("accept_rate", "Final Round Accept Rate"),
     ]
     tier_specs = [
         (tier1, "Tier 1 — Unfair marriage claim", "#e07b54"),
@@ -166,11 +166,9 @@ def _plot_distributions(
             left = max(0.0, min_val - 0.02)
             right = min(1.0, max_val + 0.02)
             ax.set_xlim(left, right)
-        elif metric == "iterations":
+        elif metric == "rounds_count":
             ax.set_xlim(0, max(all_values) + 1)
-        elif metric == "claim_versions":
-            ax.set_xlim(0, max(all_values) + 1)
-        elif metric == "satisfaction_rate":
+        elif metric == "accept_rate":
             ax.set_xlim(0.0, 1.0)
         ax.legend(fontsize=6.5, loc="upper right")
         sns.despine(ax=ax)
