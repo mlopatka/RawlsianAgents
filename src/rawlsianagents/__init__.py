@@ -2,6 +2,6 @@
 
 __version__ = "0.1.0"
 
-from .negotiation_swarm import NegotiationState, NegotiationSwarm
+from .negotiation_swarm import NegotiationSwarm
 
-__all__ = ["NegotiationSwarm", "NegotiationState"]
+__all__ = ["NegotiationSwarm"]

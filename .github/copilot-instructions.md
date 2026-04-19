@@ -63,6 +63,18 @@ When providing code or architectural advice, prioritize educational depth:
 - **DO NOT** suggest exception-specific patches or band-aid fixes.
 - Apply the **Principle of Generality**: identify the underlying architectural flaw and propose a fundamental solution that makes the error state unrepresentable.
 - Prioritize root-cause resolution and long-term maintainability over symptom-based fixes.
+
+### 8. Endogenous Fairness Only
+- **DO NOT** introduce or assume any external fairness oracle, absolute fairness score, or prescriptive fairness anchor.
+- Treat fairness as an internal product of the negotiation procedure itself (roles + spectator + public justification workflow).
+
+### 9. First-Principles Quality Gate (No Overfitting)
+- **DO NOT** propose fixes before stating objective, invariants, and failure mode.
+- **DO NOT** ship example-specific patches that fail to generalize across contract domains.
+- Every proposal must include: `problem model -> causal chain -> root cause -> minimal fix -> generality check -> validation plan`.
+- **DO NOT** infer or invent contract facts. Only use terms explicitly present in the claim, role context, or verified run data.
+- Distinguish verified facts from assumptions; mark assumptions explicitly with `, I assume`.
+- Reject any abstraction that does not reduce net complexity or remove a recurring error class.
 ---
 
 ## High-Level Codebase Information
