@@ -16,7 +16,7 @@ These are explicit working preferences. Follow them strictly.
 
 **5. Explain Mode** — When giving implementation or architecture advice: explain the *why* behind design choices, include trade-off analysis against alternatives, and share a step-by-step plan before writing code.
 
-**6. First-Principles Engineering** — Identify the underlying flaw and make the error state unrepresentable. Avoid shallow `try/except` patches and ad hoc fallback chains. Prefer root-cause fixes over local symptom treatment.
+**6. First-Principles Engineering** — Identify the underlying flaw and make the error state unrepresentable. Avoid shallow `try/except` patches and ad hoc fallback chains. Prefer root-cause fixes over local symptom treatment. When a root-cause fix is available, present it first and ask before suggesting or applying workarounds, fallback paths, or non-invasive alternatives.
 
 **7. Response Transparency** — End each response with a brief note stating what was uncertain, what was deferred, and what limitations affected execution.
 
@@ -68,21 +68,27 @@ claims_extractor.py  →  negotiation_swarm.py  →  utils/metrics.py
 
 ### `negotiation_swarm.py` (primary module)
 
-`NegotiationSwarm` drives a LangGraph state machine. Key design decisions:
+`NegotiationSwarm` drives a DSPy vote-and-rewrite loop. Key design decisions:
 
-- **Bounded role state**: role nodes see only `current_claim`, `last_accepted_claim`, `spectator_pov` — not full history — to prevent reinforcement cascades.
-- **Full spectator state**: the impartial spectator reads complete history, emits `LOOP_STATUS` / `GRIDLOCK_SUMMARY` / `PROPOSED_POV`, and relays one neutral signal via `spectator_pov`.
-- **Random routing**: actors selected randomly; the same actor cannot act twice in a row.
-- **Version-based consensus**: any rewrite resets all roles to unsatisfied; all must re-confirm on the new version.
-- **Termination**: all roles satisfied, or `max_iterations = len(roles) * 10`.
+- **Minimal role state**: each role sees only `current_claim` and `spectator_commentary` — no history — to prevent reinforcement cascades.
+- **Anonymous spectator feedback**: vote IDs (V1, V2, ...) hide role identity from the spectator to prevent bias.
+- **Random role ordering**: `random.sample(roles)` each round; prevents first-mover advantage.
+- **Termination**: unanimous `ACCEPT` in a round, or `max_vote_rounds` hit (default 10).
 
-`NegotiationState` (TypedDict) carries: `current_claim`, `last_accepted_claim`, `proposed_claim`, `claims_object`, `adjustment_notes`, `spectator_reports`, `spectator_pov`, `satisfied_roles`, `role_last_confirmed_version`, `round_count`.
+Constructor: `NegotiationSwarm(roles, initial_claim, max_vote_rounds=None, max_rounds=None)`
 
-Return payload of `negotiate()` / `negotiate_async()`: `claims_object`, `adjustment_notes`, `spectator_reports`, `iterations`, `agreement_count`, `success`, `satisfied_roles`. `claims_object[0]` is the original (`version=0`); `claims_object[-1]` is the latest.
+Return payload of `negotiate()` / `negotiate_async()`:
+- `success: bool` — whether unanimous consensus was reached
+- `rounds: list[NegotiationRound]` — full audit trail
+- `rounds_count: int` — number of voting rounds run
+- `final_claim: str` — accepted or last candidate claim
+- `spectator_commentary: str` — last spectator outside perspective
+
+Key TypedDicts: `VoteRecord` (`vote_id`, `vote`, `rationale`), `NegotiationRound` (`round`, `base_claim`, `votes`, `candidate_claim`, `spectator_commentary`, `accepted`).
 
 ### `config.py`
 
-Auto-detects cloud vs. local LLM from `USE_LOCAL_LLM` env var or `--local-llm` CLI flag. Exposes `get_api_key()`, `get_base_url()`, `get_model()`, `get_logger(name)`.
+Auto-detects cloud vs. local LLM from `USE_LOCAL_LLM` env var or `--local-llm` CLI flag. Exposes `get_api_key()`, `get_base_url()`, `get_model()`, `get_dspy_model()`, `get_embedding_model()`, `get_logger(name)`.
 
 ### `claims_extractor.py`
 
@@ -99,11 +105,14 @@ Cross-encoder semantic distance utilities for measuring drift between the initia
 | Variable | Default | Purpose |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required for cloud LLM |
+| `OPENAI_API_BASE` | `https://api.openai.com/v1` | Cloud LLM base URL |
 | `USE_LOCAL_LLM` | `0` | Set `1` for Ollama/vLLM |
 | `CHAT_MODEL` | `gpt-4o-mini` | Cloud chat model |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Cloud embedding model |
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Local LLM endpoint |
 | `LOCAL_LLM_MODEL` | `glm-4.7-flash` | Local chat model |
 | `LOCAL_EMBEDDING_MODEL` | `nomic-embed-text` | Local embedding model |
+| `TAVILY_API_KEY` | — | MCP web-search (optional) |
 
 ---
 

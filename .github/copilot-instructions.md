@@ -10,7 +10,7 @@ The system provides a complete pipeline for:
 3. **Contract redrafting** - Synthesize final contracts from negotiated claims
 4. **Fairness metrics** - Measure initial contract fairness via dispute scores and similarity metrics
 
-**Status**: Active development | **License**: MIT | **Python**: 3.14+ required | **Version**: 0.1.0
+**Status**: Active development | **License**: MIT | **Python**: 3.13+ required | **Version**: 0.1.0
 
 ---
 
@@ -44,6 +44,15 @@ The system provides a complete pipeline for:
 - New artifacts are justified only if they are required for build/runtime/test/docs generation, reused by 2+ real call sites, remove risky duplication, or measurably improve developer workflow.
 - For any new artifact, state its purpose, owner, and deletion criteria.
 - If an artifact is not referenced by runtime/build/docs entrypoints, remove it.
+- Target minimum code that solves the problem. 
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+The test: Every changed line should trace directly to the user's request.
 
 ### 5. Explain Mode
 When providing code or architectural advice, prioritize educational depth:
@@ -51,30 +60,37 @@ When providing code or architectural advice, prioritize educational depth:
 - **Trade-off Analysis**: Always list the pros and cons of your proposed implementation compared to alternatives.
 - **Step-by-Step Context**: For complex tasks, break down the logic into a sequential plan before writing code.
 
-### 6. Package Fix Research (Tavily)
-- When recommending fixes for **specific packages/libraries** (errors, breaking changes, version conflicts, API changes), use **Tavily search** first.
+### 6. Error Fix Research
+- When recommending fixes for **specific packages/libraries** (errors, breaking changes, version conflicts, API changes), use web search to look at documentation.
 - Prefer package-maintainer sources (official docs, release notes, migration guides, GitHub issues/PRs) over generic blogs.
 - In recommendations, clearly distinguish:
    - what is verified from sources,
    - what is an assumption,
    - and what should be validated in this repository.
 
-### 7. Principle of Generality
-- **DO NOT** suggest exception-specific patches or band-aid fixes.
-- Apply the **Principle of Generality**: identify the underlying architectural flaw and propose a fundamental solution that makes the error state unrepresentable.
-- Prioritize root-cause resolution and long-term maintainability over symptom-based fixes.
-
-### 8. Endogenous Fairness Only
-- **DO NOT** introduce or assume any external fairness oracle, absolute fairness score, or prescriptive fairness anchor.
-- Treat fairness as an internal product of the negotiation procedure itself (roles + spectator + public justification workflow).
-
-### 9. First-Principles Quality Gate (No Overfitting)
+### 7. First-Principles Engineering (No Overfitting)
+- **DO NOT** suggest exception-specific patches or band-aid fixes; identify the underlying architectural flaw and make the error state unrepresentable.
 - **DO NOT** propose fixes before stating objective, invariants, and failure mode.
 - **DO NOT** ship example-specific patches that fail to generalize across contract domains.
 - Every proposal must include: `problem model -> causal chain -> root cause -> minimal fix -> generality check -> validation plan`.
 - **DO NOT** infer or invent contract facts. Only use terms explicitly present in the claim, role context, or verified run data.
 - Distinguish verified facts from assumptions; mark assumptions explicitly with `, I assume`.
 - Reject any abstraction that does not reduce net complexity or remove a recurring error class.
+- When a root-cause fix is available, present it first and ask before suggesting or applying workarounds, fallback paths, or non-invasive alternatives.
+
+### 8. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+### 9. Endogenous Fairness Only
+- **DO NOT** introduce or assume any external fairness oracle, absolute fairness score, or prescriptive fairness anchor.
+- Treat fairness as an internal product of the negotiation procedure itself (roles + spectator + public justification workflow).
+
 ---
 
 ## High-Level Codebase Information
@@ -87,18 +103,19 @@ When providing code or architectural advice, prioritize educational depth:
 
 ### Key Technologies & Frameworks
 - **LLM Integration**: OpenAI-compatible APIs (cloud or local Ollama/vLLM)
-- **Agent Orchestration**: LangGraph (state graph-based agents)
-- **LLM Chains**: LangChain, DSPy (AI/ML pipeline framework)
-- **Metrics**: RAGAS (Retrieval-Augmented Generation Assessment)
+- **Agent Orchestration**: DSPy (Signatures + ChainOfThought — no LangGraph)
+- **LLM Chains**: LangChain (utilities), DSPy (primary pipeline framework)
+- **Metrics**: `sentence-transformers` CrossEncoder for semantic distance; RAGAS for claim classification
+- **Visualization**: matplotlib, seaborn
 - **Documentation**: Sphinx (autodoc with RTD theme)
 - **Dependency Management**: `uv` (Python package manager)
 - **CLI/UI**: Streamlit (optional interactive interface)
 
 ### Repository Size & Structure
-- **Small-to-medium codebase** (~2,500 lines of core Python)
-- **Well-documented**: 13 markdown documentation files + Sphinx docs
-- **8 Python source files** (6 in src/, 2 in examples/)
-- **Includes**: Full config system, examples, docs, tests setup
+- **Small codebase** (~600 lines of core Python)
+- **Sphinx docs** (autodoc from docstrings)
+- **6 Python source files** in `src/` (including `utils/metrics.py`); 4 examples in `examples/`
+- **Includes**: Full config system, examples, docs, no test suite
 
 ---
 
@@ -127,21 +144,23 @@ When providing code or architectural advice, prioritize educational depth:
 
 ```
 src/rawlsianagents/
-├── __init__.py               # Exports: NegotiationSwarm, NegotiationState
+├── __init__.py               # Exports: NegotiationSwarm
 ├── config.py                 # LLM configuration (cloud vs local)
 ├── claims_extractor.py       # Claim extraction & classification module
-├── negotiation_swarm.py      # Multi-agent negotiation orchestration (450 lines)
-└── utils/                    # Utility functions (currently empty, reserved)
+├── negotiation_swarm.py      # DSPy vote-and-rewrite negotiation loop (270 lines)
+└── utils/
+    └── metrics.py            # Cross-encoder semantic distance utilities (75 lines)
 ```
 
 ### Module Responsibilities
 
 | Module | Purpose | Key Classes/Functions |
 |--------|---------|----------------------|
-| `config.py` | LLM configuration management | `get_api_key()`, `get_base_url()`, `get_model()`, `should_use_local_llm()` |
+| `config.py` | LLM configuration management | `get_api_key()`, `get_base_url()`, `get_model()`, `get_dspy_model()`, `get_embedding_model()`, `should_use_local_llm()` |
 | `claims_extractor.py` | Extract and classify contract claims | `Claims`, `FactualOrNegotiable`, `decompose_claims()` |
-| `negotiation_swarm.py` | Multi-agent negotiation via LangGraph | `NegotiationSwarm`, `NegotiationState`, `_create_role_node()`, `_create_spectator_node()` |
-| `__init__.py` | Package exports | Exports `NegotiationSwarm`, `NegotiationState` |
+| `negotiation_swarm.py` | DSPy vote-and-rewrite negotiation loop | `NegotiationSwarm`, `VoteRecord`, `NegotiationRound`, `RoleVote`, `SpectatorSynthesis` |
+| `utils/metrics.py` | Semantic distance between claims | `compute_claim_semantic_distance()`, `SemanticDistanceMetrics` |
+| `__init__.py` | Package exports | Exports `NegotiationSwarm` |
 
 ### Documentation Structure
 
@@ -150,15 +169,8 @@ docs/
 ├── conf.py                   # Sphinx configuration
 ├── Makefile                  # Sphinx build commands
 ├── README.md                 # Documentation index
-├── negotiation_swarm.md      # API reference (full documentation)
-├── RAWLSIAN_FRAMEWORK.md     # Framework philosophy & principles
-├── INTERPRETING_RESULTS.md   # How to analyze negotiation results
-├── IMPLEMENTATION_SUMMARY.md # Technical implementation details
-├── QUICK_REFERENCE.md        # Quick navigation guide
 ├── modules.rst               # Sphinx autodoc module index
 ├── index.rst                 # Sphinx main index
-├── _static/                  # Sphinx static files
-├── _templates/               # Sphinx templates
 └── api/                      # API reference (generated by autodoc)
 ```
 
@@ -167,9 +179,9 @@ docs/
 ## Environment & Dependency Management
 
 ### Python Version
-- **Required**: Python 3.14+
+- **Required**: Python 3.13+
 - **Managed via**: `.python-version` file (pyenv integration)
-- **Current**: 3.14
+- **Current**: 3.13
 
 ### Virtual Environment Status
 - **Location**: `.venv/` in repository root
@@ -216,16 +228,18 @@ uv venv
 ### Dependencies
 
 **Core Dependencies** (in `pyproject.toml`):
-- `dspy>=3.1.3` - AI/ML pipeline framework
+- `dspy>=3.1.3` - AI/ML pipeline framework (primary orchestration)
 - `langchain>=1.2.10` - LLM chains and utilities
-- `langchain-openai>=1.1.9` - OpenAI integration
-- `langgraph>=1.0.8` - State graph-based agent orchestration
+- `langgraph>=1.0.8` - Installed but not actively used in core pipeline
 - `openai>=2.20.0` - OpenAI API client
 - `ollama>=0.6.1` - Local LLM support (Ollama)
-- `ragas>=0.4.3` - RAG assessment framework
+- `ragas>=0.4.3` - RAG assessment framework (claim classification)
+- `sentence-transformers>=3.0.0` - CrossEncoder for semantic distance metrics
+- `matplotlib>=3.9.0` / `seaborn>=0.13.2` - Visualization
 - `psycopg>=3.3.2` - PostgreSQL client (for future DB integration)
 - `streamlit>=1.54.0` - Web UI framework (optional)
 - `sphinx-rtd-theme>=3.1.0` - Documentation theme
+- `claude-agent-sdk>=0.1.56` - Claude agent SDK
 
 **No test framework installed** - Tests can be added if needed (pytest recommended)
 
@@ -249,12 +263,14 @@ cp .env.template .env
 |----------|---------|-------------|
 | `USE_LOCAL_LLM` | `0` | Set to `1` to use local LLM (Ollama/vLLM) instead of cloud |
 | `OPENAI_API_KEY` | (empty) | Your OpenAI API key (required if USE_LOCAL_LLM=0) |
+| `OPENAI_API_BASE` | `https://api.openai.com/v1` | Cloud LLM base URL |
 | `CHAT_MODEL` | `gpt-4o-mini` | Cloud LLM model (OpenAI) |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Cloud embedding model |
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Local LLM API endpoint |
 | `LOCAL_LLM_MODEL` | `glm-4.7-flash` | Local chat model name |
 | `LOCAL_EMBEDDING_MODEL` | `nomic-embed-text` | Local embedding model |
 | `LOCAL_LLM_API_KEY` | (empty) | Local LLM API key (optional) |
+| `TAVILY_API_KEY` | (empty) | Tavily API key for MCP web-search (optional) |
 
 ### Configuration Loading
 
@@ -286,16 +302,24 @@ open _build/html/index.html  # On macOS
 
 ### Running Examples
 
-**Example 1: Rental Negotiation (3 parties)**
+**Example 1: Claim Negotiation**
 ```bash
-cd <repository-root>
 python examples/negotiate_claim.py
 ```
-Runs: `example_contract_negotiation()`, `example_async_negotiation()`, `example_simple_negotiation()`
 
 **Example 2: Claims Extraction**
 ```bash
 python examples/extract_claims.py
+```
+
+**Example 3: Distribution Analysis**
+```bash
+python examples/distribution_analysis.py
+```
+
+**Example 4: Tier 3 Verbose Run**
+```bash
+python examples/tier3_verbose.py
 ```
 
 ### Validation & Testing
@@ -333,51 +357,58 @@ cd docs && make html && cd ..
 
 ## Core Modules: Key Details
 
-### negotiation_swarm.py (450 lines) - Primary Module
+### negotiation_swarm.py (270 lines) - Primary Module
 
 **Key Class**: `NegotiationSwarm`
-- **Purpose**: Orchestrate multi-agent negotiation via LangGraph
-- **Constructor**: `__init__(roles, impartial_spectator, initial_claim, model=None, temperature=0.7, max_rounds=50)`
+- **Purpose**: Orchestrate multi-agent negotiation via DSPy vote-and-rewrite loop
+- **Constructor**: `__init__(roles, initial_claim, max_vote_rounds=None, max_rounds=None)`
+  - `roles`: Non-empty list of role labels
+  - `initial_claim`: Starting claim text
+  - `max_vote_rounds`: Max voting rounds (default 10); `max_rounds` is a backward-compat alias
 - **Main Methods**:
   - `negotiate()` - Synchronous execution
-  - `negotiate_async()` - Asynchronous execution
-- **Internal Methods**:
-  - `_build_graph()` - Creates LangGraph state machine
-  - `_create_role_node(role)` - Creates evaluation node for a role
-  - `_create_spectator_node()` - Creates fairness validation node
-  - `_route_after_role()` - Routes to next agent or ends
-  - `_random_next_role()` - Selects next role randomly (prioritizing unsatisfied)
+  - `negotiate_async()` - Delegates to `negotiate()`
 
-**Key State Type**: `NegotiationState`
-- `current_claim: str` - Current terms being negotiated
-- `proposed_claim: str | None` - Proposed modification
-- `messages: list[BaseMessage]` - Negotiation history
-- `satisfied_roles: dict[str, bool]` - Satisfaction status per role
-- `proposal_history: list[str]` - Last 5 proposals (prevents cycling)
-- `round_count: int` - Iteration counter
+**Key DSPy Signatures**:
+- `RoleVote` - Role evaluates current claim; outputs `vote` (`ACCEPT`/`REJECT`) and `rationale`
+- `SpectatorSynthesis` - Impartial spectator reads vote feedback; outputs `candidate_claim` and `spectator_commentary`
 
-**Rawlsian Framework Implementation**:
-- Uses role prompt evaluating claims for **conscionability**, **power imbalances**, **vulnerability exploitation**, **long-term risks**
-- Agents respond with `SATISFIED: [reason]` or `PROPOSE: [modification]`
-- Impartial spectator validates proposals via "veil of ignorance" test
-- Terminates when all satisfied OR max_rounds hit
+**Key TypedDicts**:
+- `VoteRecord`: `vote_id`, `vote`, `rationale`
+- `NegotiationRound`: `round`, `base_claim`, `votes`, `candidate_claim`, `spectator_commentary`, `accepted`
 
-### config.py (112 lines) - Configuration Management
+**Return Payload of `negotiate()`**:
+- `success: bool` - Whether unanimous consensus was reached
+- `rounds: list[NegotiationRound]` - Full audit trail
+- `rounds_count: int` - Number of voting rounds run
+- `final_claim: str` - Final working claim (accepted or last candidate)
+- `spectator_commentary: str` - Last spectator outside perspective
+
+**Negotiation Loop**:
+1. Roles vote `ACCEPT` or `REJECT` in random order each round
+2. If all accept → success, return immediately
+3. Otherwise → impartial spectator rewrites the claim (`SpectatorSynthesis`)
+4. Revised claim becomes next round's working claim
+5. Terminates on unanimity OR `max_vote_rounds` hit
+
+### config.py (111 lines) - Configuration Management
 
 **Key Functions**:
 - `should_use_local_llm()` - Checks env var or CLI flag
 - `get_api_key()` - Returns API key (cloud or local)
 - `get_base_url()` - Returns LLM endpoint URL
-- `get_model()` - Returns model name
+- `get_model()` - Returns chat model name
+- `get_dspy_model()` - Returns DSPy-formatted model string (e.g. `openai/gpt-4o-mini`)
+- `get_embedding_model()` - Returns embedding model name
 - `get_logger(name)` - Returns configured logger
 
 **Usage Pattern**:
 ```python
-from rawlsianagents.config import get_api_key, get_base_url, get_model
+from rawlsianagents.config import get_api_key, get_base_url, get_dspy_model
 
 api_key = get_api_key()         # Auto-detects cloud vs local
 base_url = get_base_url()       # Auto-detects cloud vs local
-model = get_model()             # Auto-detects cloud vs local
+dspy_model = get_dspy_model()   # Returns DSPy-ready model string
 ```
 
 ### claims_extractor.py (129 lines) - Claim Processing
@@ -444,28 +475,26 @@ python examples/negotiate_claim.py --local-llm
 
 ## Important Implementation Details
 
-### LangGraph Integration
-- **State Machine**: Graph-based agent orchestration (not ReAct or similar)
-- **Nodes**: One node per role + spectator node + finalize node
-- **Edges**: Conditional routing based on satisfaction and max_rounds
-- **Type Hints**: Uses TypedDict for state (compatible with LangGraph)
+### DSPy Integration
+- **Pipeline**: `ChainOfThought(RoleVote)` per role + `ChainOfThought(SpectatorSynthesis)` once per round
+- **LM Configuration**: Set globally via `dspy.configure(lm=swarm_llm)` at module import
+- **Structured outputs**: `RoleVote` constrains vote to `Literal["ACCEPT", "REJECT"]`; prevents free-text drift
+- **No LangGraph**: State machine removed; loop is plain Python
 
 ### Rawlsian Framework
-- **Veil of Ignorance**: "Would you accept if roles were reversed?"
-- **Conscionability Test**: Evaluates fairness of terms
-- **Vulnerability Assessment**: Identifies exploitation of weak positions
-- **Power Balance Check**: Flags asymmetrical leverage
-- **Long-term Risk Analysis**: Considers contingencies and external factors
+- **Envy-freeness**: "Would you exchange your entire position for another party's entire position?"
+- **Reasonable Rejectability**: "Could any party reasonably reject this allocation?"
+- **Impartial Spectator**: Adam Smith / Amartya Sen tradition — identifies missing logic or information between roles
+- **Anonymous feedback**: Vote IDs (V1, V2, ...) hide role identity from spectator to prevent bias
 
 ### Response Parsing
-Agents respond with explicit format:
-- `SATISFIED: [explanation]` - Party is satisfied with current claim
-- `PROPOSE: [modification]` - Party proposes specific change
+- Roles vote `ACCEPT` or `REJECT` (structured DSPy output, not string parsing)
+- All `ACCEPT` in a round = consensus, loop exits immediately
+- Any `REJECT` triggers spectator rewrite of the claim
 
-### Proposal History
-- Maintains last 5 proposals
-- Prevents infinite cycling through identical proposals
-- Shown to agents in system prompt to encourage progress
+### Random Role Ordering
+- Each round uses `random.sample(roles)` for a fresh permutation
+- Prevents systematic first-mover advantage
 
 ---
 
@@ -528,28 +557,30 @@ pyright src/rawlsianagents/                   # Type check (if available)
 RawlsianAgents/
 │
 ├── src/rawlsianagents/
-│   ├── __init__.py              (exports: NegotiationSwarm, NegotiationState)
+│   ├── __init__.py              (exports: NegotiationSwarm)
 │   ├── config.py                (LLM config: local vs cloud)
-│   ├── negotiation_swarm.py     (PRIMARY - multi-agent negotiation)
+│   ├── negotiation_swarm.py     (PRIMARY - DSPy vote-and-rewrite loop)
 │   ├── claims_extractor.py      (claim parsing & classification)
-│   └── utils/                   (reserved for utilities)
+│   └── utils/
+│       └── metrics.py           (cross-encoder semantic distance)
 │
 ├── examples/
-│   ├── negotiate_claim.py       (3 working examples using NegotiationSwarm)
-│   └── extract_claims.py        (example: claim extraction)
+│   ├── negotiate_claim.py       (claim negotiation example)
+│   ├── extract_claims.py        (claim extraction example)
+│   ├── distribution_analysis.py (distribution analysis example)
+│   └── tier3_verbose.py         (verbose tier 3 run example)
 │
 ├── docs/
-│   ├── negotiation_swarm.md     (API reference - comprehensive)
-│   ├── RAWLSIAN_FRAMEWORK.md    (framework philosophy)
-│   ├── QUICK_REFERENCE.md       (quick guide)
-│   ├── INTERPRETING_RESULTS.md  (result analysis)
-│   ├── IMPLEMENTATION_SUMMARY.md (technical details)
 │   ├── conf.py                  (Sphinx config)
-│   └── Makefile                 (doc building)
+│   ├── Makefile                 (doc building)
+│   ├── README.md                (documentation index)
+│   ├── modules.rst / index.rst  (Sphinx autodoc entry points)
+│   └── api/                     (Sphinx-generated API reference)
 │
+├── data/LeVan vs LeVan/         (sample contract data)
 ├── .env.template                (environment variable template)
 ├── .env                         (local config - do not commit)
-├── .python-version              (Python 3.14)
+├── .python-version              (Python 3.13)
 ├── pyproject.toml               (PRIMARY CONFIG - dependencies, build)
 ├── uv.lock                      (locked dependencies - auto-managed)
 ├── LICENSE                      (MIT)
@@ -583,8 +614,8 @@ RawlsianAgents/
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: February 17, 2026  
+**Document Version**: 1.1  
+**Last Updated**: April 2026  
 **For**: RawlsianAgents v0.1.0  
-**Python**: 3.14+  
+**Python**: 3.13+  
 **Status**: Production Ready ✓

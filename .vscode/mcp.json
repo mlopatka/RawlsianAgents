@@ -1,13 +1,13 @@
 {
-  "mcpServers": {
-    "tavily-remote": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "https://mcp.tavily.com/mcp/?tavilyApiKey=${env:TAVILY_API_KEY}"
-      ],
-      "env": {}
-    }
-  }
+	"servers": {
+		"tavily_search": {
+			"type": "stdio",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"set -a && source .env && set +a && exec npx -y mcp-remote \"https://mcp.tavily.com/mcp/?tavilyApiKey=$TAVILY_API_KEY\""
+			]
+		}
+	},
+	"inputs": []
 }
