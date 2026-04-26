@@ -4,31 +4,24 @@ An implementation of **Rawlsian Agents** based on [Rawlsian Agents: An Applicati
 
 ## Architecture Overview
 
-```
-┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│  1. Claim           │ ──► │  2. Negotiation     │ ──► │  3. Contract        │
-│  Extraction &       │     │  Simulation         │     │  Drafting           │
-│  Classification     │     │  (Multi-Agent)      │     │  (Final Output)     │
-└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
-         │                           │                            │
-         │                           │                            ▼
-    Factual vs.               Amendment Iterations      ┌─────────────────────┐
-    Negotiable                Per Claim Tracking        │  4. Fairness Metrics│
-    Claims                    Dispute Score             │  - Dispute Score    │
-                                                        │  - Semantic Distance│
-                                                        └─────────────────────┘
+```mermaid
+flowchart LR
+    A["1. Claim Extraction\n& Classification"] --> B["2. Negotiation\nSwarm"]
+    B --> C["3. Final Claim"]
+    B --> D["4. Fairness Metrics\n- Dispute Score\n- Semantic Distance"]
+    A -. factual / negotiable .-> B
 ```
 
 ### Pipeline Stages
 
 1. **Claim Extraction & Classification** – Parse contract text and classify claims as *factual* or *negotiable*.
-2. **Negotiation Swarm** – Run multi-role rolling negotiation over a claim until consensus or max iterations is reached:
-  - Role nodes receive bounded state only (`current_claim`, `last_accepted_claim`, `spectator_pov`) and may accept or rewrite the claim.
-  - Impartial spectator can be selected at any turn, reads full history, and relays a neutral bounded perspective.
-  - Routing is random across roles + spectator, avoiding sequential turns for the same actor.
-3. **Negotiation Output** – Return the final claim plus traceable negotiation artifacts:
-  - `claims_object`, `adjustment_notes`, `satisfied_roles`
-  - `iterations`, `agreement_count`, `success`
+2. **Negotiation Swarm** – DSPy vote-and-rewrite loop over a claim until unanimous consensus or `max_vote_rounds` is reached:
+   - Each role casts an `ACCEPT` or `REJECT` vote with rationale (random order each round).
+   - An impartial spectator reads anonymised vote feedback and proposes a revised claim plus one outside-perspective commentary.
+   - Loop exits on unanimity or after `max_vote_rounds` (default 10).
+3. **Negotiation Output** – Return the final claim plus a full audit trail:
+   - `success`, `final_claim`, `spectator_commentary`
+   - `rounds` (full per-round record), `rounds_count`
 
 ## Prerequisites
 
@@ -188,54 +181,79 @@ The `NegotiationSwarm` module provides a simple way to negotiate claims among mu
 ```python
 from rawlsianagents import NegotiationSwarm
 
-# Define roles and initial claim
 roles = ["LeVan family", "bride", "groom", "potential children"]
 initial_claim = (
-  "The marriage contract excludes all of the husband's business interests "
-  "from net family property and limits the wife's right to support."
+    "The marriage contract excludes all of the husband's business interests "
+    "from net family property and limits the wife's right to support."
 )
 
-# Create and run negotiation
 swarm = NegotiationSwarm(
     roles=roles,
     initial_claim=initial_claim,
+    max_vote_rounds=10,  # optional, default is 10
 )
 
 result = swarm.negotiate()
-final_claim = result["claims_object"][-1]["claim"]
-print(f"Final claim: {final_claim}")
-print(f"Completed in {result['iterations']} iterations")
+print(f"Final claim: {result['final_claim']}")
+print(f"Completed in {result['rounds_count']} rounds")
 print(f"Success: {result['success']}")
-print(f"Satisfied roles: {result['satisfied_roles']}")
 ```
 
 See [examples/negotiate_claim.py](examples/negotiate_claim.py) for more examples. For generated API docs, build Sphinx docs and open `docs/_build/html/index.html`.
 
 ### Current NegotiationSwarm Behavior
 
-- Constructor: `NegotiationSwarm(roles, initial_claim)` with `max_iterations = len(roles) * 10`
-- Role nodes evaluate using bounded state only: `current_claim`, `last_accepted_claim`, and `spectator_pov`
-- Role nodes do not see full negotiation history (`claims_object` or `adjustment_notes`)
-- Roles and spectator both use chain-of-thought evaluation (`dspy.ChainOfThought`)
-- Satisfaction is tracked in `satisfied_roles` and per-version confirmations in `role_last_confirmed_version`
-- Any role rewrite resets all roles to unsatisfied for the new version; each role must re-confirm on that version
-- Spectator can be selected at any turn, reads full history, and emits structured diagnostics (`LOOP_STATUS`, `GRIDLOCK_SUMMARY`, `PROPOSED_POV`)
-- Spectator relays one neutral bounded signal to roles via `spectator_pov` (overwritten each spectator turn)
-- Routing is random across roles + spectator, with one constraint: the same actor cannot act twice in a row
-- Negotiation ends on consensus for the current claim version or when `max_iterations` is reached
+**Outer loop** — one iteration per round:
 
-Design rationale:
-- This bounded-role / full-spectator split is intended to reduce reinforcement cascades (combative->combative or complacent->complacent) while preserving a shared forum through the spectator's neutral relay.
+```mermaid
+flowchart TD
+    A["initial_claim"] --> B["Round N"]
+    B --> C{"All ACCEPT?"}
+    C -- yes --> D["success=True\nfinal_claim"]
+    C -- no --> E["Spectator synthesis"]
+    E --> F["candidate_claim\n+ spectator_commentary"]
+    F --> G{"max_vote_rounds hit?"}
+    G -- no --> B
+    G -- yes --> H["success=False\nfinal_claim"]
+```
 
-Return payload includes:
+**Inner round** — the democratic voting process:
 
-- `claims_object`
-- `adjustment_notes`
-- `spectator_reports`
-- `iterations`
-- `agreement_count`
-- `success`
-- `satisfied_roles`
+```mermaid
+flowchart LR
+    subgraph roles ["Roles (random order each round)"]
+        R1["Role 1\nACCEPT / REJECT\n+ rationale"]
+        R2["Role 2\nACCEPT / REJECT\n+ rationale"]
+        Rn["Role N\nACCEPT / REJECT\n+ rationale"]
+    end
+    subgraph spectator ["Impartial Spectator"]
+        S1["Reads anonymised\nvotes: V1, V2 … Vn\n(identity hidden)"]
+        S2["Proposes revised claim\n+ outside commentary"]
+    end
+    current_claim --> roles
+    roles --> check{All ACCEPT?}
+    check -- no --> S1
+    S1 --> S2
+    S2 --> next_claim["next round's\nworking claim"]
+    check -- yes --> accepted["consensus reached"]
+```
+
+- Constructor: `NegotiationSwarm(roles, initial_claim, max_vote_rounds=10)`
+- Each role evaluates only `current_claim` and `spectator_commentary` — no history.
+- Roles use `dspy.ChainOfThought(RoleVote)` and vote `ACCEPT` or `REJECT` with a rationale.
+- Spectator uses `dspy.ChainOfThought(SpectatorSynthesis)` and receives anonymised vote IDs (V1, V2, …) to prevent identity bias.
+- Spectator outputs a revised `candidate_claim` and a free-text `spectator_commentary` for the next round.
+- Role order is re-randomised each round via `random.sample(roles)`.
+
+Return payload of `negotiate()` / `negotiate_async()`:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `success` | `bool` | Whether unanimous consensus was reached |
+| `final_claim` | `str` | Accepted or last candidate claim |
+| `spectator_commentary` | `str` | Last spectator outside perspective |
+| `rounds` | `list[NegotiationRound]` | Full per-round audit trail |
+| `rounds_count` | `int` | Number of voting rounds run |
 
 ### Pipeline Usage
 
@@ -253,23 +271,7 @@ Runs the extraction/classification workflow over the included sample inputs.
 python examples/negotiate_claim.py
 ```
 
-Runs the current `NegotiationSwarm` flow and prints the final claim plus satisfaction map.
-
-### Output from NegotiationSwarm
-
-`negotiate()` and `negotiate_async()` return:
-
-- `claims_object`
-- `adjustment_notes`
-- `spectator_reports`
-- `iterations`
-- `agreement_count`
-- `success`
-- `satisfied_roles`
-
-Notes:
-- `claims_object[0]` is the original claim (`version=0`), and `claims_object[-1]` is the latest claim.
-- `agreement_count` is a cumulative count of unchanged-claim confirmations over time.
+Runs the DSPy vote-and-rewrite loop and prints the final claim plus audit trail.
 
 ## Environment
 
@@ -296,30 +298,22 @@ RawlsianAgents/
 ├── data/                  # Sample agreements and inputs
 ├── src/
 │   └── rawlsianagents/
-│       ├── __init__.py            # Public package exports
+│       ├── __init__.py            # Exports: NegotiationSwarm
 │       ├── config.py              # LLM config (cloud vs local)
 │       ├── claims_extractor.py    # Claim extraction & classification
-│       ├── negotiation_swarm.py   # Multi-agent negotiation swarm
+│       ├── negotiation_swarm.py   # DSPy vote-and-rewrite loop
 │       └── utils/
 │           ├── __init__.py        # Utility exports
-│           └── metrics.py         # Semantic distance metrics
+│           └── metrics.py         # Cross-encoder semantic distance
 ├── examples/
-│   ├── distribution_analysis.py   # Example: 4-tier distribution experiment
-│   ├── extract_claims.py          # Example: Extract claims
-│   ├── negotiate_claim.py         # Example: Negotiation swarm
-|   └── contracts/                  # Collection of contracts from CUAD dataset
-|       ├── 2000/
-|       ├── 2001/
-|       ├── 2002/
-|       ...
-|       ├── 2019/
-|       └── 2020/
+│   ├── negotiate_claim.py         # Example: negotiation swarm
+│   ├── extract_claims.py          # Example: claim extraction
+│   ├── distribution_analysis.py   # Example: dispute score distribution
+│   └── tier3_verbose.py           # Example: verbose tier 3 run
 ├── docs/
-│   ├── README.md                  # Docs build guide
 │   ├── index.rst                  # Sphinx entrypoint
 │   ├── modules.rst                # API module index
-│   ├── api/                       # API rst pages
-│   └── ...
+│   └── api/                       # API rst pages (auto-generated)
 └── uv.lock                # Locked dependency graph
 ```
 
